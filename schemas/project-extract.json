@@ -1,0 +1,69 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "ProjectExtract",
+  "description": "案件メールから抽出する固定スキーマ。欠損はnull、推測禁止。根拠行・confidenceを付与する。",
+  "type": "object",
+  "required": ["version", "extractedAt"],
+  "additionalProperties": false,
+  "properties": {
+    "version": { "type": "string", "const": "1.0" },
+    "extractedAt": { "type": "string", "format": "date-time" },
+    "priceMin": { "type": ["number", "null"], "description": "単価下限（万円）" },
+    "priceMinEvidence": { "type": ["string", "null"] },
+    "priceMinConfidence": { "type": ["number", "null"], "minimum": 0, "maximum": 1 },
+    "priceMax": { "type": ["number", "null"] },
+    "priceMaxEvidence": { "type": ["string", "null"] },
+    "priceMaxConfidence": { "type": ["number", "null"], "minimum": 0, "maximum": 1 },
+    "requiredSkillIds": {
+      "type": "array",
+      "items": { "type": "string" },
+      "description": "必須スキルの正規化ID配列"
+    },
+    "requiredSkillsEvidence": { "type": ["string", "null"] },
+    "requiredSkillsConfidence": { "type": ["number", "null"], "minimum": 0, "maximum": 1 },
+    "optionalSkillIds": {
+      "type": "array",
+      "items": { "type": "string" }
+    },
+    "optionalSkillsEvidence": { "type": ["string", "null"] },
+    "optionalSkillsConfidence": { "type": ["number", "null"], "minimum": 0, "maximum": 1 },
+    "workLocation": { "type": ["string", "null"] },
+    "workLocationEvidence": { "type": ["string", "null"] },
+    "workLocationConfidence": { "type": ["number", "null"], "minimum": 0, "maximum": 1 },
+    "remoteOk": { "type": ["boolean", "null"] },
+    "remoteOkEvidence": { "type": ["string", "null"] },
+    "remoteOkConfidence": { "type": ["number", "null"], "minimum": 0, "maximum": 1 },
+    "availability": { "type": ["string", "null"], "description": "稼働条件（週5必須等）" },
+    "availabilityEvidence": { "type": ["string", "null"] },
+    "availabilityConfidence": { "type": ["number", "null"], "minimum": 0, "maximum": 1 },
+    "startPeriod": { "type": ["string", "null"], "description": "入場時期" },
+    "startPeriodEvidence": { "type": ["string", "null"] },
+    "startPeriodConfidence": { "type": ["number", "null"], "minimum": 0, "maximum": 1 },
+    "duration": { "type": ["string", "null"], "description": "期間" },
+    "durationEvidence": { "type": ["string", "null"] },
+    "durationConfidence": { "type": ["number", "null"], "minimum": 0, "maximum": 1 },
+    "conditions": {
+      "type": "object",
+      "description": "条件（個人不可・年齢・国籍・面談回数等）",
+      "properties": {
+        "individualProhibited": { "type": ["boolean", "null"] },
+        "ageMin": { "type": ["integer", "null"] },
+        "ageMax": { "type": ["integer", "null"] },
+        "nationality": { "type": ["string", "null"] },
+        "interviewCount": { "type": ["integer", "null"] }
+      }
+    },
+    "conditionsEvidence": { "type": ["string", "null"] },
+    "conditionsConfidence": { "type": ["number", "null"], "minimum": 0, "maximum": 1 },
+    "supplyChainInfo": {
+      "type": "object",
+      "description": "商流（分かる範囲で）",
+      "properties": {
+        "depth": { "type": ["integer", "null"], "description": "1=一次, 2=二次..." },
+        "viaPartner": { "type": ["string", "null"] }
+      }
+    },
+    "supplyChainEvidence": { "type": ["string", "null"] },
+    "supplyChainConfidence": { "type": ["number", "null"], "minimum": 0, "maximum": 1 }
+  }
+}

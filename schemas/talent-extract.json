@@ -1,0 +1,55 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "TalentExtract",
+  "description": "人材メールから抽出する固定スキーマ。欠損はnull、推測禁止。根拠行・confidenceを付与する。",
+  "type": "object",
+  "required": ["version", "extractedAt"],
+  "additionalProperties": false,
+  "properties": {
+    "version": { "type": "string", "const": "1.0" },
+    "extractedAt": { "type": "string", "format": "date-time" },
+    "hopePriceMin": {
+      "type": ["number", "null"],
+      "description": "希望単価下限（万円）"
+    },
+    "hopePriceMinEvidence": { "type": ["string", "null"], "description": "根拠行" },
+    "hopePriceMinConfidence": { "type": ["number", "null"], "minimum": 0, "maximum": 1 },
+    "hopePriceMax": { "type": ["number", "null"] },
+    "hopePriceMaxEvidence": { "type": ["string", "null"] },
+    "hopePriceMaxConfidence": { "type": ["number", "null"], "minimum": 0, "maximum": 1 },
+    "age": { "type": ["integer", "null"] },
+    "ageEvidence": { "type": ["string", "null"] },
+    "ageConfidence": { "type": ["number", "null"], "minimum": 0, "maximum": 1 },
+    "employmentTypeId": { "type": ["string", "null"], "description": "雇用形態の正規化ID" },
+    "employmentTypeEvidence": { "type": ["string", "null"] },
+    "employmentTypeConfidence": { "type": ["number", "null"], "minimum": 0, "maximum": 1 },
+    "nearestStationId": { "type": ["string", "null"] },
+    "nearestStationEvidence": { "type": ["string", "null"] },
+    "nearestStationConfidence": { "type": ["number", "null"], "minimum": 0, "maximum": 1 },
+    "workLocationPreference": { "type": ["string", "null"] },
+    "workLocationEvidence": { "type": ["string", "null"] },
+    "workLocationConfidence": { "type": ["number", "null"], "minimum": 0, "maximum": 1 },
+    "skills": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["skillId"],
+        "properties": {
+          "skillId": { "type": "string" },
+          "years": { "type": ["number", "integer", "null"] },
+          "lastUsed": { "type": ["string", "null"], "description": "直近使用（例: 2024年）" },
+          "evidence": { "type": ["string", "null"] },
+          "confidence": { "type": ["number", "null"], "minimum": 0, "maximum": 1 }
+        }
+      }
+    },
+    "availability": { "type": ["string", "null"], "description": "稼働（週5/週3等）" },
+    "availabilityEvidence": { "type": ["string", "null"] },
+    "availabilityConfidence": { "type": ["number", "null"], "minimum": 0, "maximum": 1 },
+    "startAvailableDate": { "type": ["string", "null"], "description": "入場可能日（ISO date or 文言）" },
+    "startAvailableEvidence": { "type": ["string", "null"] },
+    "startAvailableConfidence": { "type": ["number", "null"], "minimum": 0, "maximum": 1 },
+    "skillSheetUrl": { "type": ["string", "null"], "format": "uri" },
+    "skillSheetAttachmentId": { "type": ["string", "null"] }
+  }
+}

@@ -1,0 +1,231 @@
+// SES マッチングシステム（コアラ超え版） Prisma スキーマ
+// 提案② 専用システム版用（ルート schema/prisma と同期すること）
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+// ========== 原本系（監査・再解析） ==========
+
+model RawEmail {
+  id        String   @id @default(cuid())
+  messageId String?  @unique
+  receivedAt DateTime
+  fromAddr  String
+  toAddr    String?
+  subject   String?
+  bodyText  String?
+  bodyHtml  String?
+  classification String?
+  processingStatus String @default("pending")
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  deletedAt DateTime?
+
+  attachments RawAttachment[]
+  links       RawLink[]
+  ingestEvents IngestEvent[]
+  projectOffers ProjectOffer[]
+  talentOffers  TalentOffer[]
+}
+
+model RawAttachment {
+  id          String   @id @default(cuid())
+  rawEmailId  String
+  rawEmail    RawEmail @relation(fields: [rawEmailId], references: [id])
+  filename    String?
+  mimeType    String?
+  storageKey  String
+  contentHash String?
+  createdAt   DateTime @default(now())
+  deletedAt   DateTime?
+}
+
+model RawLink {
+  id         String   @id @default(cuid())
+  rawEmailId String
+  rawEmail   RawEmail @relation(fields: [rawEmailId], references: [id])
+  url        String
+  linkType   String?
+  createdAt  DateTime @default(now())
+}
+
+model IngestEvent {
+  id         String   @id @default(cuid())
+  rawEmailId String
+  rawEmail   RawEmail @relation(fields: [rawEmailId], references: [id])
+  eventType  String
+  payload    String?
+  createdAt  DateTime @default(now())
+}
+
+model Company {
+  id   String @id @default(cuid())
+  name String
+  projects Project[]
+}
+
+model Partner {
+  id   String @id @default(cuid())
+  name String
+  projectOffers ProjectOffer[]
+  talentOffers  TalentOffer[]
+}
+
+model Skill {
+  id       String @id @default(cuid())
+  code     String @unique
+  name     String
+  category String?
+  aliases  SkillAlias[]
+}
+
+model SkillAlias {
+  id      String @id @default(cuid())
+  skillId String
+  skill   Skill  @relation(fields: [skillId], references: [id])
+  alias   String
+}
+
+model SkillUpdateLog {
+  id         String   @id @default(cuid())
+  skillId    String?
+  action     String
+  oldValue   String?
+  newValue   String?
+  updatedAt  DateTime @default(now())
+  updatedBy  String?
+}
+
+model Station {
+  id   String @id @default(cuid())
+  code String @unique
+  name String
+}
+
+model EmploymentType {
+  id   String @id @default(cuid())
+  code String @unique
+  name String
+}
+
+model Project {
+  id         String   @id @default(cuid())
+  companyId  String?
+  company    Company? @relation(fields: [companyId], references: [id])
+  canonicalName String?
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+  offers     ProjectOffer[]
+}
+
+model Talent {
+  id       String   @id @default(cuid())
+  canonicalName String?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  offers   TalentOffer[]
+}
+
+model ProjectOffer {
+  id          String   @id @default(cuid())
+  projectId   String
+  project     Project  @relation(fields: [projectId], references: [id])
+  partnerId   String?
+  partner     Partner? @relation(fields: [partnerId], references: [id])
+  rawEmailId  String?
+  rawEmail    RawEmail? @relation(fields: [rawEmailId], references: [id])
+  priceMin    Float?
+  priceMax    Float?
+  paymentTerms String?
+  supplyChainDepth Int?
+  interviewCount   Int?
+  requiredSkillIds String?
+  optionalSkillIds String?
+  workLocation     String?
+  remoteOk         Boolean?
+  availability     String?
+  startPeriod      String?
+  duration         String?
+  conditions       String?
+  confidenceFlags  String?
+  extractedAt      DateTime?
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
+  matches Match[]
+}
+
+model TalentOffer {
+  id          String   @id @default(cuid())
+  talentId    String
+  talent      Talent   @relation(fields: [talentId], references: [id])
+  partnerId   String?
+  partner     Partner? @relation(fields: [partnerId], references: [id])
+  rawEmailId  String?
+  rawEmail    RawEmail? @relation(fields: [rawEmailId], references: [id])
+  hopePriceMin Float?
+  hopePriceMax Float?
+  age         Int?
+  employmentTypeId String?
+  nearestStationId String?
+  workLocationPreference String?
+  skillIdsWithYears String?
+  availability String?
+  startAvailableDate String?
+  skillSheetUrl String?
+  skillSheetAttachmentId String?
+  confidenceFlags String?
+  extractedAt   DateTime?
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+  matches Match[]
+}
+
+model Match {
+  id              String   @id @default(cuid())
+  projectOfferId  String
+  projectOffer    ProjectOffer @relation(fields: [projectOfferId], references: [id])
+  talentOfferId   String
+  talentOffer     TalentOffer  @relation(fields: [talentOfferId], references: [id])
+  score           Int?
+  scoreBreakdown  String?
+  isRecommended   Boolean  @default(false)
+  hardFilterFailed Boolean @default(false)
+  exclusionReason String?
+  recommendationReasons String?
+  attentionPoint  String?
+  confirmationQuestions String?
+  emailDraft      String?
+  callMemo        String?
+  createdAt       DateTime @default(now())
+  outcome       String?
+  outcomeReason String?
+  outcomeNotes  String?
+  outcomeAt     DateTime?
+  outcomeBy     String?
+  pipeline Pipeline[]
+}
+
+model Pipeline {
+  id        String   @id @default(cuid())
+  matchId   String
+  match     Match    @relation(fields: [matchId], references: [id])
+  status    String
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+model Activity {
+  id         String   @id @default(cuid())
+  userId     String?
+  action     String
+  targetType String
+  targetId   String
+  payload    String?
+  createdAt  DateTime @default(now())
+}

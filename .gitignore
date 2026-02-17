@@ -1,0 +1,44 @@
+# 依存関係
+node_modules/
+
+# ビルド成果物
+dist/
+build/
+.next/
+out/
+
+# 環境変数（.env.example はコミットする）
+.env
+.env.local
+.env.*.local
+
+# データベース（SQLite など）
+*.db
+*.db-journal
+prisma/*.db
+prisma/*.db-journal
+
+# ログ・キャッシュ
+*.log
+npm-debug.log*
+.npm
+.cache/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+
+# Vite
+*.local
+
+# その他
+coverage/
+.nyc_output/
+*.tsbuildinfo
