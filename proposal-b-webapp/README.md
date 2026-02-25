@@ -1,5 +1,50 @@
 # 提案②：専用システム版（Web＋DB / 本番運用）
 
+## Mission Control MVP（このリポジトリの現状）
+
+テナント（アカウント）ごとの健康状態を俯瞰し、フォロー用の LINE 文面を生成する **Mission Control** の最小実装を同梱しています。
+
+### 起動（開発）
+
+- backend（http://localhost:4000）
+  - `cd backend && npm run dev`
+- frontend（http://localhost:3000）
+  - `cd frontend && npm run dev`
+
+### 環境変数（backend/.env）
+
+backend は **`backend/.env`** を読み込みます（ローカル用。Git にコミットしない）。
+
+```bash
+cd backend
+cp .env.example .env
+```
+
+backend 側に以下を設定してください。
+
+- `MISSION_CONTROL_PASSWORD`（必須）: ログイン用の単一パスワード
+- `DATA_MODE`（任意）: `mock | csv | db`（現在は `mock` のみ実装）
+- `PORT`（任意）: backend ポート（default: 4000）
+- `FRONTEND_ORIGIN`（任意）: CORS を有効化したい場合に指定（例: `http://localhost:3000`）
+- `DISCORD_WEBHOOK_URL`（任意）: Discord の Incoming Webhook URL（Mission Control から「シキ/ツムギ/…」の persona で投稿）
+
+> 注意: `DISCORD_WEBHOOK_URL` は第三者に共有しないでください（貼られると誰でも投稿できる可能性があります）。
+
+### Discord webhook（persona 投稿）
+
+- フロントの Account 詳細画面に **persona picker** と **T#（T1..T4）ステータスのクイック投稿**を用意しています。
+- persona は以下の key を送ります（backend 側の定義と一致）：
+  - `moru`, `shiki`, `tsumugi`, `kensaku`, `hajime`, `suu`, `kumi`, `kotone`, `hiraku`
+
+### データソース（次の一手）
+
+- `DATA_MODE=db` を実装する際は、まず以下の **DB view** を作る想定です（命名は案）：
+  - `mc_accounts`（tenant/account の基本情報・ステータス）
+  - `mc_learners`（accountId, learnerId, lastActivityAt, submissions_30d など）
+- `DATA_MODE=csv` は、上記 view と同じ形の CSV を読み込むアダプタに差し替えるだけで移行できるようにしています。
+
+---
+
 メール/ファイルを取り込み、DB で正規化して「検索・名寄せ・マッチ・進捗」を一気通貫で管理する専用アプリ（ブラウザで利用）。
 
 ---

@@ -1,0 +1,5 @@
+{
+  "rewrites": [
+    { "source": "/api/(.*)", "destination": "https://mc-lite.vercel.app/api/$1" }
+  ]
+}

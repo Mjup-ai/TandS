@@ -1,78 +1,136 @@
 import { useEffect, useState } from 'react';
-import InboxPage from './pages/InboxPage';
-import ProjectsPage from './pages/ProjectsPage';
-import TalentsPage from './pages/TalentsPage';
-import MatchPage from './pages/MatchPage';
-import ConfigPage from './pages/ConfigPage';
+import { APP_NAME } from './config';
+import { authLogin, authLogout, authMe } from './lib/api';
+import LoginPage from './pages/LoginPage';
+import HomePage from './pages/HomePage';
+import DashboardPage from './pages/DashboardPage';
+import AccountsPage from './pages/AccountsPage';
+import AccountDetailPage from './pages/AccountDetailPage';
+import ChatPage from './pages/ChatPage';
+import OfficePage from './pages/OfficePage';
 
-type Tab = 'inbox' | 'projects' | 'talents' | 'match' | 'config';
-
-interface Stats {
-  rawEmails: number;
-  projectOffers: number;
-  talentOffers: number;
-}
+type View = 'home' | 'dashboard' | 'office' | 'accounts' | 'accountDetail' | 'chat';
 
 export default function App() {
-  const [tab, setTab] = useState<Tab>('inbox');
-  const [stats, setStats] = useState<Stats | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [authenticated, setAuthenticated] = useState(false);
+  const [loginError, setLoginError] = useState<string | null>(null);
+
+  const [view, setView] = useState<View>('office');
+  const [selectedAccountId, setSelectedAccountId] = useState<string | null>(null);
 
   useEffect(() => {
-    fetch('/api/stats')
-      .then((r) => r.json())
-      .then((d) => setStats(d))
-      .catch(() => setStats(null));
-  }, [tab]);
+    authMe()
+      .then((d) => {
+        setAuthenticated(Boolean(d.authenticated));
+        setLoading(false);
+      })
+      .catch(() => {
+        setAuthenticated(false);
+        setLoading(false);
+      });
+  }, []);
+
+  if (loading) {
+    return <div className="min-h-screen bg-slate-50" />;
+  }
+
+  if (!authenticated) {
+    return (
+      <div className="min-h-screen bg-slate-50">
+        <header className="border-b border-slate-200 bg-white shadow-card">
+          <div className="mx-auto max-w-6xl px-4 py-4 sm:px-6">
+            <h1 className="text-lg font-bold text-slate-800 sm:text-xl">{APP_NAME}</h1>
+          </div>
+        </header>
+        <main className="mx-auto max-w-6xl px-4 py-10 sm:px-6">
+          <LoginPage
+            error={loginError}
+            onLogin={async (password) => {
+              setLoginError(null);
+              try {
+                await authLogin(password);
+                setAuthenticated(true);
+              } catch (e) {
+                setLoginError('Login failed');
+              }
+            }}
+          />
+        </main>
+      </div>
+    );
+  }
 
   const nav = [
-    { id: 'inbox' as Tab, label: '受信', count: stats?.rawEmails },
-    { id: 'projects' as Tab, label: '案件', count: stats?.projectOffers },
-    { id: 'talents' as Tab, label: '人材', count: stats?.talentOffers },
-    { id: 'match' as Tab, label: 'マッチ' },
-    { id: 'config' as Tab, label: '設定' },
+    { id: 'office' as const, label: 'オフィス' },
+    { id: 'home' as const, label: '司令室' },
+    { id: 'dashboard' as const, label: 'ダッシュボード' },
+    { id: 'chat' as const, label: '指揮チャット' },
+    { id: 'accounts' as const, label: 'アカウント' },
   ];
 
   return (
     <div className="min-h-screen bg-slate-50">
       <header className="border-b border-slate-200 bg-white shadow-card">
-        <div className="mx-auto max-w-4xl px-4 py-4 sm:px-6">
-          <h1 className="text-lg font-bold text-slate-800 sm:text-xl">SES マッチング</h1>
-          <nav className="mt-3 flex flex-wrap items-center gap-0.5" role="tablist" aria-label="メイン">
-            {nav.map(({ id, label, count }) => (
-              <button
-                key={id}
-                type="button"
-                role="tab"
-                aria-selected={tab === id}
-                onClick={() => setTab(id)}
-                className={`rounded-lg px-3.5 py-2 text-sm font-medium transition ${
-                  tab === id
-                    ? 'bg-primary-100 text-primary-800 ring-1 ring-primary-200'
-                    : 'text-slate-600 hover:bg-slate-100 hover:text-slate-800'
-                }`}
-              >
-                {label}
-                {count !== undefined && count !== null && (
-                  <span
-                    className={`ml-1.5 rounded-md px-1.5 py-0.5 text-xs font-medium ${
-                      tab === id ? 'bg-primary-200/80 text-primary-900' : 'bg-slate-200 text-slate-700'
-                    }`}
-                  >
-                    {count}
-                  </span>
-                )}
-              </button>
-            ))}
-          </nav>
+        <div className="mx-auto flex max-w-6xl items-center justify-between px-4 py-4 sm:px-6">
+          <div>
+            <h1 className="text-lg font-bold text-slate-800 sm:text-xl">{APP_NAME}</h1>
+            <nav className="mt-3 flex flex-wrap items-center gap-0.5" aria-label="Main">
+              {nav.map(({ id, label }) => (
+                <button
+                  key={id}
+                  type="button"
+                  onClick={() => {
+                    setView(id);
+                    setSelectedAccountId(null);
+                  }}
+                  className={`rounded-lg px-3.5 py-2 text-sm font-medium transition ${
+                    view === id
+                      ? 'bg-primary-100 text-primary-800 ring-1 ring-primary-200'
+                      : 'text-slate-600 hover:bg-slate-100 hover:text-slate-800'
+                  }`}
+                >
+                  {label}
+                </button>
+              ))}
+            </nav>
+          </div>
+
+          <button
+            type="button"
+            className="rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm font-semibold text-slate-800 hover:bg-slate-50"
+            onClick={async () => {
+              await authLogout();
+              setAuthenticated(false);
+            }}
+          >
+            Logout
+          </button>
         </div>
       </header>
 
-      <main className="mx-auto max-w-4xl px-4 py-6 sm:px-6" role="main">
-        {tab === 'inbox' && <InboxPage />}
-        {tab === 'projects' && <ProjectsPage />}
-        {tab === 'talents' && <TalentsPage />}
-        {tab === 'match' && <MatchPage />}
-        {tab === 'config' && <ConfigPage />}
+      <main className="mx-auto max-w-6xl px-4 py-6 sm:px-6" role="main">
+        {view === 'home' && <HomePage />}
+        {view === 'office' && <OfficePage />}
+        {view === 'dashboard' && <DashboardPage />}
+        {view === 'chat' && <ChatPage />}
+        {view === 'accounts' && (
+          <AccountsPage
+            onOpenAccount={(accountId) => {
+              setSelectedAccountId(accountId);
+              setView('accountDetail');
+            }}
+          />
+        )}
+        {view === 'accountDetail' && selectedAccountId ? (
+          <AccountDetailPage
+            accountId={selectedAccountId}
+            onBack={() => {
+              setView('accounts');
+              setSelectedAccountId(null);
+            }}
+          />
+        ) : null}
       </main>
     </div>
   );
