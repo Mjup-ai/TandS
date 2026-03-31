@@ -207,7 +207,7 @@ app.get('/api/stats', async (_req: Request, res: Response) => {
 
 /** 設定（閾値など） */
 app.get('/api/config', (_req: Request, res: Response) => {
-  res.json({ scoreThreshold: SCORE_THRESHOLD });
+  res.json({ scoreThreshold: SCORE_THRESHOLD, gmailLookbackDays: GMAIL_IMPORT_LOOKBACK_DAYS, gmailAccount: GMAIL_IMPORT_ACCOUNT });
 });
 
 /** 受信一覧：ページネーション対応（プロ視点：パフォーマンス） */
