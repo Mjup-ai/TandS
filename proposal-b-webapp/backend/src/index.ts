@@ -1916,22 +1916,28 @@ async function importGmailMessage(gmail: any, gid: string) {
   const bodyText = bodyTextRaw.slice(0, BODY_MAX);
   const receivedAt = msg.data.internalDate ? new Date(Number(msg.data.internalDate)) : new Date();
 
-  const created = await prisma.rawEmail.create({
-    data: {
-      messageId,
-      receivedAt,
-      fromAddr,
-      toAddr,
-      ccAddr,
-      deliveredToAddr,
-      originalRecipient,
-      salesOwnerEmail: salesOwner.salesOwnerEmail ?? undefined,
-      salesOwnerName: salesOwner.salesOwnerName ?? undefined,
-      subject,
-      bodyText,
-      processingStatus: 'pending',
-    },
-  });
+  let created;
+  try {
+    created = await prisma.rawEmail.create({
+      data: {
+        messageId,
+        receivedAt,
+        fromAddr,
+        toAddr,
+        ccAddr,
+        deliveredToAddr,
+        originalRecipient,
+        salesOwnerEmail: salesOwner.salesOwnerEmail ?? undefined,
+        salesOwnerName: salesOwner.salesOwnerName ?? undefined,
+        subject,
+        bodyText,
+        processingStatus: 'pending',
+      },
+    });
+  } catch (e: any) {
+    if (e?.code === 'P2002') return; // duplicate — skip
+    throw e;
+  }
 
   // 自動分類（MVP）：当たればそのままOffer作成まで
   let cls = autoClassifyFromText(`${subject}\n${bodyText}`);
@@ -2025,9 +2031,16 @@ async function gmailImportOnce() {
   if (!authRow.lastHistoryId) {
     console.log('[gmail] initial sync (lookback)');
     const q = `newer_than:${GMAIL_IMPORT_LOOKBACK_DAYS}d`;
-    const list = await gmail.users.messages.list({ userId: 'me', q, maxResults: 50 });
-    const msgIds = (list.data.messages ?? []).map((m) => m.id).filter(Boolean) as string[];
-    for (const gid of msgIds) {
+    let allMsgIds: string[] = [];
+    let pageToken: string | undefined = undefined;
+    do {
+      const list: any = await gmail.users.messages.list({ userId: 'me', q, maxResults: 100, pageToken });
+      const ids = (list.data.messages ?? []).map((m: any) => m.id).filter(Boolean) as string[];
+      allMsgIds = allMsgIds.concat(ids);
+      pageToken = list.data.nextPageToken ?? undefined;
+    } while (pageToken && allMsgIds.length < 200);
+    console.log(`[gmail] found ${allMsgIds.length} messages`);
+    for (const gid of allMsgIds) {
       await importGmailMessage(gmail, gid);
     }
 
