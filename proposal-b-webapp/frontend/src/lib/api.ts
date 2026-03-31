@@ -1,4 +1,5 @@
 import type { MissionAccountDetail, MissionAccountSummary, MissionKpis } from '../types';
+import { apiFetch } from './http';
 
 async function json<T>(res: Response): Promise<T> {
   if (!res.ok) {
@@ -51,38 +52,38 @@ function mockAccountDetail(id: string): MissionAccountDetail {
 
 export async function authMe(): Promise<{ authenticated: boolean }> {
   if (USE_MOCK) return { authenticated: true };
-  return json(await fetch('/api/auth/me'));
+  return json(await apiFetch('/api/auth/me'));
 }
 
 export async function authLogin(password: string): Promise<void> {
   if (USE_MOCK) return;
-  await json(await fetch('/api/auth/login', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ password }) }));
+  await json(await apiFetch('/api/auth/login', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ password }) }));
 }
 
 export async function authLogout(): Promise<void> {
   if (USE_MOCK) return;
-  await json(await fetch('/api/auth/logout', { method: 'POST' }));
+  await json(await apiFetch('/api/auth/logout', { method: 'POST' }));
 }
 
 export async function getKpis(): Promise<MissionKpis> {
   if (USE_MOCK) return mockKpis();
-  return json(await fetch('/api/mission/kpis'));
+  return json(await apiFetch('/api/mission/kpis'));
 }
 
 export async function listAccounts(): Promise<{ items: MissionAccountSummary[] }> {
   if (USE_MOCK) return mockAccounts();
-  return json(await fetch('/api/mission/accounts'));
+  return json(await apiFetch('/api/mission/accounts'));
 }
 
 export async function getAccountDetail(id: string): Promise<MissionAccountDetail> {
   if (USE_MOCK) return mockAccountDetail(id);
-  return json(await fetch(`/api/mission/accounts/${encodeURIComponent(id)}`));
+  return json(await apiFetch(`/api/mission/accounts/${encodeURIComponent(id)}`));
 }
 
 export async function postDiscordWebhook(input: { persona: string; content: string }): Promise<{ ok: true }> {
   if (USE_MOCK) return { ok: true };
   return json(
-    await fetch('/api/mission/discord-webhook', {
+    await apiFetch('/api/mission/discord-webhook', {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
       body: JSON.stringify(input),
@@ -99,7 +100,7 @@ export async function getActivity(limit = 50): Promise<{ items: Array<{ id: stri
       ],
     };
   }
-  return json(await fetch(`/api/mission/activity?limit=${encodeURIComponent(String(limit))}`));
+  return json(await apiFetch(`/api/mission/activity?limit=${encodeURIComponent(String(limit))}`));
 }
 
 export async function getPresence(): Promise<{ presence: Record<string, { lastSeenAt: string }> }> {
@@ -107,7 +108,7 @@ export async function getPresence(): Promise<{ presence: Record<string, { lastSe
     const now = new Date().toISOString();
     return { presence: { shiki: { lastSeenAt: now }, kumi: { lastSeenAt: now } } };
   }
-  return json(await fetch('/api/mission/presence'));
+  return json(await apiFetch('/api/mission/presence'));
 }
 
 export type PersonaProfile = {
@@ -132,7 +133,7 @@ export async function getPersonas(): Promise<{ items: PersonaProfile[] }> {
       ],
     };
   }
-  return json(await fetch('/api/mission/personas'));
+  return json(await apiFetch('/api/mission/personas'));
 }
 
 export type ThreadSummary = {
@@ -156,7 +157,7 @@ export async function getThreads(limit = 50): Promise<{ items: ThreadSummary[] }
       ],
     };
   }
-  return json(await fetch(`/api/mission/threads?limit=${encodeURIComponent(String(limit))}`));
+  return json(await apiFetch(`/api/mission/threads?limit=${encodeURIComponent(String(limit))}`));
 }
 
 export async function getThreadMessages(ticket: string, limit = 100): Promise<{ ticket: string; items: ThreadMessage[] }> {
@@ -171,12 +172,12 @@ export async function getThreadMessages(ticket: string, limit = 100): Promise<{ 
       ],
     };
   }
-  return json(await fetch(`/api/mission/threads/${encodeURIComponent(ticket)}?limit=${encodeURIComponent(String(limit))}`));
+  return json(await apiFetch(`/api/mission/threads/${encodeURIComponent(ticket)}?limit=${encodeURIComponent(String(limit))}`));
 }
 
 export async function getQueueSummary(): Promise<{ ok: true; counts: Record<string, number>; overdue: number }> {
   if (USE_MOCK) return { ok: true, counts: { queued: 2, running: 1, dlq: 0, succeeded: 10 }, overdue: 0 } as any;
-  return json(await fetch('/api/queue/summary'));
+  return json(await apiFetch('/api/queue/summary'));
 }
 
 export type QueueTask = {
@@ -194,7 +195,7 @@ export type QueueTask = {
 
 export async function getQueueRunning(limit = 20): Promise<{ ok: true; items: QueueTask[] }> {
   if (USE_MOCK) return { ok: true, items: [] } as any;
-  return json(await fetch(`/api/queue/running?limit=${encodeURIComponent(String(limit))}`));
+  return json(await apiFetch(`/api/queue/running?limit=${encodeURIComponent(String(limit))}`));
 }
 
 export async function postActivity(input: {
@@ -206,7 +207,7 @@ export async function postActivity(input: {
 }): Promise<{ ok: true }> {
   if (USE_MOCK) return { ok: true } as any;
   return json(
-    await fetch('/api/mission/activity', {
+    await apiFetch('/api/mission/activity', {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
       body: JSON.stringify(input),

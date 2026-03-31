@@ -1,0 +1,20 @@
+{
+  "aggregationMailboxes": [
+    "ses-hub@example.com"
+  ],
+  "owners": [
+    {
+      "name": "営業A",
+      "emails": [
+        "eigyo-a@example.com",
+        "eigyo-a+alias@example.com"
+      ]
+    },
+    {
+      "name": "営業B",
+      "emails": [
+        "eigyo-b@example.com"
+      ]
+    }
+  ]
+}

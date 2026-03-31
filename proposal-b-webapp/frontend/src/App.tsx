@@ -2,21 +2,37 @@ import { useEffect, useState } from 'react';
 import { APP_NAME } from './config';
 import { authLogin, authLogout, authMe } from './lib/api';
 import LoginPage from './pages/LoginPage';
+import InboxPage from './pages/InboxPage';
+import ProjectsPage from './pages/ProjectsPage';
+import TalentsPage from './pages/TalentsPage';
+import MatchPage from './pages/MatchPage';
 import HomePage from './pages/HomePage';
 import DashboardPage from './pages/DashboardPage';
 import AccountsPage from './pages/AccountsPage';
 import AccountDetailPage from './pages/AccountDetailPage';
 import ChatPage from './pages/ChatPage';
+import ConfigPage from './pages/ConfigPage';
 import OfficePage from './pages/OfficePage';
 
-type View = 'home' | 'dashboard' | 'office' | 'accounts' | 'accountDetail' | 'chat';
+type View =
+  | 'inbox'
+  | 'projects'
+  | 'talents'
+  | 'matches'
+  | 'config'
+  | 'home'
+  | 'dashboard'
+  | 'office'
+  | 'accounts'
+  | 'accountDetail'
+  | 'chat';
 
 export default function App() {
   const [loading, setLoading] = useState(true);
   const [authenticated, setAuthenticated] = useState(false);
   const [loginError, setLoginError] = useState<string | null>(null);
 
-  const [view, setView] = useState<View>('office');
+  const [view, setView] = useState<View>('inbox');
   const [selectedAccountId, setSelectedAccountId] = useState<string | null>(null);
 
   useEffect(() => {
@@ -62,11 +78,16 @@ export default function App() {
   }
 
   const nav = [
-    { id: 'office' as const, label: 'オフィス' },
-    { id: 'home' as const, label: '司令室' },
-    { id: 'dashboard' as const, label: 'ダッシュボード' },
-    { id: 'chat' as const, label: '指揮チャット' },
-    { id: 'accounts' as const, label: 'アカウント' },
+    { id: 'inbox' as const, label: '受信一覧' },
+    { id: 'projects' as const, label: '案件' },
+    { id: 'talents' as const, label: '人材' },
+    { id: 'matches' as const, label: 'マッチ' },
+    { id: 'config' as const, label: '設定' },
+    { id: 'office' as const, label: 'MC オフィス' },
+    { id: 'home' as const, label: 'MC 司令室' },
+    { id: 'dashboard' as const, label: 'MC ダッシュボード' },
+    { id: 'chat' as const, label: 'MC 指揮チャット' },
+    { id: 'accounts' as const, label: 'MC アカウント' },
   ];
 
   return (
@@ -110,6 +131,11 @@ export default function App() {
       </header>
 
       <main className="mx-auto max-w-6xl px-4 py-6 sm:px-6" role="main">
+        {view === 'inbox' && <InboxPage />}
+        {view === 'projects' && <ProjectsPage />}
+        {view === 'talents' && <TalentsPage />}
+        {view === 'matches' && <MatchPage />}
+        {view === 'config' && <ConfigPage />}
         {view === 'home' && <HomePage />}
         {view === 'office' && <OfficePage />}
         {view === 'dashboard' && <DashboardPage />}

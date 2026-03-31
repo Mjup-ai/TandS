@@ -6,7 +6,7 @@ generator client {
 }
 
 datasource db {
-  provider = "sqlite"
+  provider = "postgresql"
   url      = env("DATABASE_URL")
 }
 
@@ -18,11 +18,20 @@ model RawEmail {
   receivedAt DateTime
   fromAddr  String
   toAddr    String?
+  ccAddr    String?
+  deliveredToAddr String?
+  originalRecipient String?
+  salesOwnerEmail String?
+  salesOwnerName String?
   subject   String?
   bodyText  String?
   bodyHtml  String?
   classification String?
   processingStatus String @default("pending")
+  aiModel String?
+  aiJson String?
+  aiConfidence Float?
+  aiExtractedAt DateTime?
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
   deletedAt DateTime?
@@ -140,6 +149,9 @@ model ProjectOffer {
   partner     Partner? @relation(fields: [partnerId], references: [id])
   rawEmailId  String?
   rawEmail    RawEmail? @relation(fields: [rawEmailId], references: [id])
+  senderDomain String?
+  salesOwnerEmail String?
+  salesOwnerName String?
   priceMin    Float?
   priceMax    Float?
   paymentTerms String?
@@ -151,6 +163,7 @@ model ProjectOffer {
   remoteOk         Boolean?
   availability     String?
   startPeriod      String?
+  nationalityRequirement String?
   duration         String?
   conditions       String?
   confidenceFlags  String?
@@ -168,15 +181,20 @@ model TalentOffer {
   partner     Partner? @relation(fields: [partnerId], references: [id])
   rawEmailId  String?
   rawEmail    RawEmail? @relation(fields: [rawEmailId], references: [id])
+  senderDomain String?
+  salesOwnerEmail String?
+  salesOwnerName String?
   hopePriceMin Float?
   hopePriceMax Float?
   age         Int?
   employmentTypeId String?
   nearestStationId String?
+  employmentTypeText String?
   workLocationPreference String?
   skillIdsWithYears String?
   availability String?
   startAvailableDate String?
+  nationalityText String?
   skillSheetUrl String?
   skillSheetAttachmentId String?
   confidenceFlags String?
@@ -184,6 +202,20 @@ model TalentOffer {
   createdAt     DateTime @default(now())
   updatedAt     DateTime @updatedAt
   matches Match[]
+}
+
+model GoogleAuth {
+  id           String   @id @default(cuid())
+  email        String   @unique
+  accessToken  String?
+  refreshToken String?
+  expiryDateMs BigInt?
+  scope        String?
+  tokenType    String?
+  lastSyncedAt DateTime?
+  lastHistoryId String?
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
 }
 
 model Match {

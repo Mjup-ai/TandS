@@ -22,13 +22,63 @@ cp .env.example .env
 
 backend 側に以下を設定してください。
 
+- `DATABASE_URL`（必須）: Postgres 接続文字列
 - `MISSION_CONTROL_PASSWORD`（必須）: ログイン用の単一パスワード
 - `DATA_MODE`（任意）: `mock | csv | db`（現在は `mock` のみ実装）
 - `PORT`（任意）: backend ポート（default: 4000）
 - `FRONTEND_ORIGIN`（任意）: CORS を有効化したい場合に指定（例: `http://localhost:3000`）
+- `GOOGLE_REDIRECT_URI`（本番必須）: SES backend の公開 URL に合わせる
 - `DISCORD_WEBHOOK_URL`（任意）: Discord の Incoming Webhook URL（Mission Control から「シキ/ツムギ/…」の persona で投稿）
+- `SALES_OWNER_ALIASES`（任意）: `営業A:eigyo-a@example.com,eigyo-a+alias@example.com;営業B:eigyo-b@example.com`
+- `AGGREGATION_MAILBOXES`（任意）: 集約用 Gmail アドレスをカンマ区切りで指定。担当営業推定の候補から除外する
 
 > 注意: `DISCORD_WEBHOOK_URL` は第三者に共有しないでください（貼られると誰でも投稿できる可能性があります）。
+
+### SES 用: 担当営業の推定設定
+
+営業マンごとのメールに届いた案件/人材を 1 つの Gmail に集約する運用向けに、backend は `To / Cc / Delivered-To / X-Original-To` を見て担当営業を推定します。
+
+- 簡易運用なら `.env` の `SALES_OWNER_ALIASES` と `AGGREGATION_MAILBOXES` だけで動きます
+- 安定運用するなら [backend/config/salesOwners.example.json](backend/config/salesOwners.example.json) をコピーして `backend/config/salesOwners.json` を作ってください
+
+例:
+
+```json
+{
+  "aggregationMailboxes": ["ses-hub@example.com"],
+  "owners": [
+    { "name": "営業A", "emails": ["eigyo-a@example.com", "eigyo-a+alias@example.com"] },
+    { "name": "営業B", "emails": ["eigyo-b@example.com"] }
+  ]
+}
+```
+
+この設定があると、案件一覧・人材一覧・マッチ・重複候補で「誰宛て由来か」を安定して表示できます。
+
+### 提出用デプロイ構成
+
+- frontend は `Vercel`
+- backend は `Railway`
+- DB は `Railway Postgres` などの Postgres
+
+backend は [backend/railway.json](backend/railway.json) を同梱しています。Railway では `backend/` をサービス root にし、少なくとも以下を設定してください。
+
+- `DATABASE_URL`
+- `FRONTEND_ORIGIN`
+- `GOOGLE_CLIENT_ID`
+- `GOOGLE_CLIENT_SECRET`
+- `GOOGLE_REDIRECT_URI`
+- `MISSION_CONTROL_PASSWORD`
+- `OPENAI_API_KEY`
+
+初回は backend 側で以下を実行してスキーマを入れます。
+
+```bash
+cd backend
+npm run db:push
+```
+
+frontend は [frontend/.env.example](frontend/.env.example) をもとに `VITE_API_BASE_URL` を設定してください。Vercel では `https://your-ses-backend.up.railway.app` のような backend 公開 URL を入れます。
 
 ### Discord webhook（persona 投稿）
 
@@ -42,6 +92,26 @@ backend 側に以下を設定してください。
   - `mc_accounts`（tenant/account の基本情報・ステータス）
   - `mc_learners`（accountId, learnerId, lastActivityAt, submissions_30d など）
 - `DATA_MODE=csv` は、上記 view と同じ形の CSV を読み込むアダプタに差し替えるだけで移行できるようにしています。
+
+## SES システムの現在地
+
+このフォルダには Mission Control 要素も混在していますが、SES 本体としては現時点で以下まで入っています。
+
+- 受信一覧、案件、人材、マッチの導線
+- `.eml` / 手入力 / Gmail からの取り込み
+- 営業担当メールアドレスの推定と保持
+- 案件/人材一覧での担当営業フィルタ
+- 案件/人材の重複候補ビュー
+- 重複候補からの手動統合
+- 統合履歴の表示
+- Match の Hard Filter 寄り除外理由
+- Match の推薦理由 / 注意点 / 確認質問表示
+
+まだ粗い箇所:
+
+- 名寄せアルゴリズムは簡易候補提示レベル
+- Match スコアは仕様寄りに改善中だが、辞書ベースの本実装ではない
+- Inbox の抽出確認導線は軽量で、監査/修正フローはまだ弱い
 
 ---
 
@@ -117,8 +187,8 @@ backend 側に以下を設定してください。
 | ファイル | 内容 |
 |----------|------|
 | [開発開始手順.md](開発開始手順.md) | **開発スタート用**：backend / frontend の起動手順 |
-| [backend/](backend/) | **Express + Prisma + TypeScript**。`npm run dev` で API 起動（ポート 4000）。 |
-| [frontend/](frontend/) | **Vite + React + TypeScript + Tailwind**。`npm run dev` で起動（ポート 3000）。API は /api で backend にプロキシ。 |
+| [backend/](backend/) | **Express + Prisma + TypeScript**。`npm run dev` で API 起動（ポート 4000）。提出用は Railway 想定。 |
+| [frontend/](frontend/) | **Vite + React + TypeScript + Tailwind**。`npm run dev` で起動（ポート 3000）。`VITE_API_BASE_URL` で backend を切り替える。 |
 | [MVPスコープ.md](MVPスコープ.md) | MVP で含める/含めない機能の一覧 |
 | [本番スコープ.md](本番スコープ.md) | 本番で追加する機能・非機能 |
 
@@ -126,7 +196,7 @@ backend 側に以下を設定してください。
 
 ## 技術スタック（想定）
 
-- **バックエンド**: Node.js + Express（または Next.js API）+ Prisma + SQLite → 本番で Postgres 可
+- **バックエンド**: Node.js + Express + Prisma + Postgres
 - **フロント**: React + TypeScript（または Next.js）
 - **取り込み**: Gmail API / IMAP、.eml パース
 - **AI**: OpenAI 等（分類・抽出・理由生成）
