@@ -551,6 +551,10 @@ type AiExtractResult =
         startPeriod?: string;
         nationalityRequirement?: string;
       };
+      title?: string | null;
+      skills?: string[];
+      optionalSkills?: string[];
+      duration?: string | null;
       json: any;
     }
   | {
@@ -565,6 +569,9 @@ type AiExtractResult =
         startAvailableDate?: string;
         nationalityText?: string;
       };
+      name?: string | null;
+      skills?: string[];
+      experienceYears?: number | null;
       json: any;
     };
 
@@ -584,13 +591,17 @@ async function aiExtractEmail(subject: string | null, bodyText: string | null) {
           type: 'object',
           additionalProperties: false,
           properties: {
+            title: { type: ['string', 'null'] },
             priceMinMan: { type: ['number', 'null'] },
             priceMaxMan: { type: ['number', 'null'] },
+            skills: { type: 'array', items: { type: 'string' } },
+            optionalSkills: { type: 'array', items: { type: 'string' } },
             supplyChainDepth: { type: ['number', 'null'] },
             interviewCount: { type: ['number', 'null'] },
             workLocation: { type: ['string', 'null'] },
             remoteOk: { type: ['boolean', 'null'] },
             startPeriod: { type: ['string', 'null'] },
+            duration: { type: ['string', 'null'] },
             nationalityRequirement: { type: ['string', 'null'] },
           },
         },
@@ -598,8 +609,11 @@ async function aiExtractEmail(subject: string | null, bodyText: string | null) {
           type: 'object',
           additionalProperties: false,
           properties: {
+            name: { type: ['string', 'null'] },
             hopePriceMinMan: { type: ['number', 'null'] },
             hopePriceMaxMan: { type: ['number', 'null'] },
+            skills: { type: 'array', items: { type: 'string' } },
+            experienceYears: { type: ['number', 'null'] },
             age: { type: ['number', 'null'] },
             employmentTypeText: { type: ['string', 'null'] },
             workLocationPreference: { type: ['string', 'null'] },
@@ -612,17 +626,38 @@ async function aiExtractEmail(subject: string | null, bodyText: string | null) {
     },
   } as const;
 
+  const systemPrompt = `あなたはSES（システムエンジニアリングサービス）業界のメールから情報を抽出するエキスパートです。
+
+## メール形式の特徴
+SES業界のメールには以下の形式が多いです:
+- ━━━━━━ や ■■■■ で区切られたセクション
+- ■案件名■、【案件名】、◆案件名◆ のような見出し
+- 「案件名：」「単価：」「勤務地：」のようなラベル付き項目
+- 箇条書きでスキルや条件が列挙される
+- 複数案件/人材が1通に含まれる場合は最初の1件を抽出
+
+## 分類ルール
+- 「案件名」「作業内容」「必須スキル」「募集」があれば project
+- 「スキルシート」「経歴」「ご提案」「人材情報」があれば talent
+- 営業メール、挨拶、その他ビジネスメールは unknown
+
+## 抽出ルール
+- 推測で埋めない。本文に書かれていない値は null。
+- 単価は「万/月」の数値で抽出（例: 60万〜70万 → min:60, max:70）
+- skills配列には技術名を正規化して入れる（例: "React", "Java", "AWS", "Python"）
+- 案件のtitleは案件名/プロジェクト名を抽出。なければ件名から推定（「Fwd:」「Re:」は除去）
+- 人材のnameはイニシャルや仮名でも抽出する（例: "T.K様", "田中"）`;
+
   const resp = await client.responses.create({
     model: OPENAI_MODEL,
     input: [
       {
         role: 'system',
-        content:
-          'あなたはSESの案件/人材メールから項目を抽出するエンジンです。日本語メールから、単価は「万/月」の数値で抽出してください。曖昧ならnull。推測で埋めない。',
+        content: systemPrompt,
       },
       {
         role: 'user',
-        content: `以下のメール本文から、案件(project)か人材(talent)か判定し、必要項目を抽出して下さい。\n\n---\n${text}\n---`,
+        content: `以下のメール本文から、案件(project)か人材(talent)か判定し、必要項目を抽出して下さい。\n\n件名: ${subject ?? '(なし)'}\n\n本文:\n${bodyText ?? '(なし)'}`,
       },
     ],
     // NOTE: openai npm の型追従が遅れる場合があるため、MVPでは any キャストで吸収
@@ -666,6 +701,10 @@ async function aiExtractAndPersist(rawEmailId: string): Promise<AiExtractResult 
         startPeriod: out?.project?.startPeriod ?? undefined,
         nationalityRequirement: out?.project?.nationalityRequirement ?? undefined,
       },
+      title: out?.project?.title ?? null,
+      skills: out?.project?.skills ?? [],
+      optionalSkills: out?.project?.optionalSkills ?? [],
+      duration: out?.project?.duration ?? null,
       json: out,
     };
   }
@@ -683,6 +722,9 @@ async function aiExtractAndPersist(rawEmailId: string): Promise<AiExtractResult 
         startAvailableDate: out?.talent?.startAvailableDate ?? undefined,
         nationalityText: out?.talent?.nationalityText ?? undefined,
       },
+      name: out?.talent?.name ?? null,
+      skills: out?.talent?.skills ?? [],
+      experienceYears: out?.talent?.experienceYears ?? null,
       json: out,
     };
   }
@@ -771,8 +813,10 @@ app.patch('/api/raw-emails/:id/classification', async (req: Request, res: Respon
         return res.json(row);
       }
 
+      const aiTitle = ai?.classification === 'project' ? (ai.title ?? null) : null;
+      const canonicalName = (aiTitle || rawEmail.subject || '案件').slice(0, 200);
       const project = await prisma.project.create({
-        data: { canonicalName: (rawEmail.subject || '案件').slice(0, 200) },
+        data: { canonicalName },
       });
 
       const price = ai?.classification === 'project' ? { min: ai.fields.priceMin, max: ai.fields.priceMax } : extractPriceMan(sourceText);
@@ -782,6 +826,9 @@ app.patch('/api/raw-emails/:id/classification', async (req: Request, res: Respon
       const remoteOk = ai?.classification === 'project' ? (ai.fields.remoteOk ?? null) : extractRemoteOk(sourceText);
       const startPeriod = ai?.classification === 'project' ? (ai.fields.startPeriod ?? null) : extractStartText(sourceText);
       const nationalityRequirement = ai?.classification === 'project' ? (ai.fields.nationalityRequirement ?? null) : extractNationality(sourceText);
+      const requiredSkillIds = ai?.classification === 'project' && ai.skills?.length ? JSON.stringify(ai.skills) : undefined;
+      const optionalSkillIds = ai?.classification === 'project' && ai.optionalSkills?.length ? JSON.stringify(ai.optionalSkills) : undefined;
+      const duration = ai?.classification === 'project' ? (ai.duration ?? null) : null;
 
       await prisma.projectOffer.create({
         data: {
@@ -798,6 +845,9 @@ app.patch('/api/raw-emails/:id/classification', async (req: Request, res: Respon
           remoteOk: remoteOk ?? undefined,
           startPeriod: startPeriod ?? undefined,
           nationalityRequirement: nationalityRequirement ?? undefined,
+          requiredSkillIds: requiredSkillIds,
+          optionalSkillIds: optionalSkillIds,
+          duration: duration ?? undefined,
           extractedAt: new Date(),
         },
       });
@@ -811,7 +861,8 @@ app.patch('/api/raw-emails/:id/classification', async (req: Request, res: Respon
         return res.json(row);
       }
 
-      const talent = await prisma.talent.create({ data: {} });
+      const aiName = ai?.classification === 'talent' ? (ai.name ?? null) : null;
+      const talent = await prisma.talent.create({ data: { canonicalName: aiName ?? undefined } });
 
       const price = ai?.classification === 'talent' ? { min: ai.fields.hopePriceMin, max: ai.fields.hopePriceMax } : extractPriceMan(sourceText);
       const age = ai?.classification === 'talent' ? (ai.fields.age ?? null) : extractAge(sourceText);
@@ -819,6 +870,9 @@ app.patch('/api/raw-emails/:id/classification', async (req: Request, res: Respon
       const workLocationPreference = ai?.classification === 'talent' ? (ai.fields.workLocationPreference ?? null) : extractLocationText(sourceText);
       const startAvailableDate = ai?.classification === 'talent' ? (ai.fields.startAvailableDate ?? null) : extractStartText(sourceText);
       const nationalityText = ai?.classification === 'talent' ? (ai.fields.nationalityText ?? null) : extractNationality(sourceText);
+      const skillIdsWithYears = ai?.classification === 'talent' && ai.skills?.length
+        ? JSON.stringify(ai.skills.map((s: string) => ({ skillId: s, years: null })))
+        : undefined;
 
       await prisma.talentOffer.create({
         data: {
@@ -834,6 +888,7 @@ app.patch('/api/raw-emails/:id/classification', async (req: Request, res: Respon
           workLocationPreference: workLocationPreference ?? undefined,
           startAvailableDate: startAvailableDate ?? undefined,
           nationalityText: nationalityText ?? undefined,
+          skillIdsWithYears: skillIdsWithYears,
           extractedAt: new Date(),
         },
       });
@@ -1096,38 +1151,61 @@ function extractKeywords(text: string | null): Set<string> {
 }
 
 const TECH_TERMS = [
-  'react',
-  'next',
-  'vue',
-  'angular',
-  'typescript',
-  'javascript',
-  'node',
-  'java',
-  'kotlin',
-  'spring',
-  'c#',
-  '.net',
-  'python',
-  'go',
-  'php',
-  'laravel',
-  'ruby',
-  'rails',
-  'aws',
-  'gcp',
-  'azure',
-  'terraform',
-  'kubernetes',
-  'docker',
-  'postgres',
-  'mysql',
-  'oracle',
-  'redis',
-  'linux',
-  'sap',
-  'pmo',
-  'pm',
+  // Frontend
+  'react', 'next', 'vue', 'nuxt', 'angular', 'svelte', 'typescript', 'javascript',
+  'html', 'css', 'sass', 'scss', 'tailwind', 'jquery', 'webpack', 'vite',
+  // Backend
+  'node', 'express', 'nestjs', 'java', 'kotlin', 'spring', 'springboot',
+  'c#', '.net', 'asp.net', 'python', 'django', 'flask', 'fastapi',
+  'go', 'golang', 'rust', 'scala', 'php', 'laravel', 'cakephp', 'symfony',
+  'ruby', 'rails',
+  // Mobile
+  'swift', 'ios', 'android', 'flutter', 'react native', 'xamarin',
+  // Cloud / Infra
+  'aws', 'gcp', 'azure', 'terraform', 'ansible', 'cloudformation',
+  'kubernetes', 'k8s', 'docker', 'ecs', 'eks', 'fargate', 'lambda',
+  'ec2', 's3', 'rds', 'dynamodb', 'cloudfront',
+  // DB
+  'postgres', 'postgresql', 'mysql', 'mariadb', 'oracle', 'sqlserver', 'sql server',
+  'redis', 'mongodb', 'elasticsearch', 'bigquery',
+  // DevOps / CI/CD
+  'jenkins', 'github actions', 'gitlab', 'circleci', 'datadog', 'grafana',
+  'linux', 'centos', 'ubuntu', 'rhel', 'nginx', 'apache',
+  // Data / AI
+  'spark', 'hadoop', 'airflow', 'tableau', 'power bi', 'powerbi',
+  'tensorflow', 'pytorch', 'scikit', 'pandas', 'numpy',
+  // ERP / Business
+  'sap', 'salesforce', 'servicenow', 'dynamics',
+  // Management
+  'pmo', 'pm', 'pl', 'se', 'pg',
+  // Security / Network
+  'firewall', 'waf', 'vpn', 'cisco', 'fortinet', 'zabbix',
+  // Testing
+  'selenium', 'jest', 'junit', 'pytest', 'playwright',
+  // Other
+  'cobol', 'vba', 'abap', 'plsql', 'shell', 'bash', 'powershell',
+  'git', 'svn', 'jira', 'confluence', 'slack', 'teams',
+  'api', 'rest', 'graphql', 'grpc', 'microservices',
+  'agile', 'scrum', 'waterfall',
+];
+
+const JP_TECH_TERMS = [
+  // 工程
+  '要件定義', '基本設計', '詳細設計', '実装', 'コーディング', '単体テスト', '結合テスト',
+  'システムテスト', '受入テスト', '運用保守', '運用', '保守', '監視', '移行',
+  // 業務ドメイン
+  '金融', '銀行', '証券', '保険', '生保', '損保', '官公庁', '自治体', '公共',
+  '製造', '物流', '流通', '小売', '通信', '放送', 'EC', '医療', '製薬',
+  '不動産', '建設', 'エネルギー', '電力', '交通', '航空',
+  // 役割
+  '上流', '下流', 'フルスタック', 'バックエンド', 'フロントエンド', 'インフラ',
+  'ネットワーク', 'データベース', 'DBA', 'テスト', 'QA', '品質管理',
+  'リーダー', 'マネージャー', 'アーキテクト', 'コンサル',
+  // 開発手法
+  'ウォーターフォール', 'アジャイル', 'スクラム',
+  // その他
+  '構築', 'リプレイス', 'マイグレーション', '新規開発', '改修', '追加開発',
+  'バッチ', 'API開発', '画面開発', 'DB設計', 'テーブル設計',
 ];
 
 function extractTechTokens(text: string | null): Set<string> {
@@ -1137,12 +1215,11 @@ function extractTechTokens(text: string | null): Set<string> {
   for (const term of TECH_TERMS) {
     if (t.includes(term)) found.add(term);
   }
-  // 日本語の代表ワード
-  if (t.includes('基本設計')) found.add('基本設計');
-  if (t.includes('要件定義')) found.add('要件定義');
-  if (t.includes('詳細設計')) found.add('詳細設計');
-  if (t.includes('運用保守')) found.add('運用保守');
-  if (t.includes('構築')) found.add('構築');
+  // 日本語の技術・業務ワード
+  const original = text; // 日本語は大文字小文字関係ないので元テキストを使う
+  for (const term of JP_TECH_TERMS) {
+    if (original.includes(term)) found.add(term);
+  }
   return found;
 }
 
@@ -1161,12 +1238,28 @@ function overlapScore(
   tMin: number | null | undefined,
   tMax: number | null | undefined
 ): { score: number; reason?: string } {
-  if (pMin == null || pMax == null || tMin == null || tMax == null) return { score: 0 };
-  const left = Math.max(pMin, tMin);
-  const right = Math.min(pMax, tMax);
-  if (right >= left) return { score: 20 };
+  // 片方だけでも値がある場合の部分スコア
+  const pHasAny = pMin != null || pMax != null;
+  const tHasAny = tMin != null || tMax != null;
+  if (!pHasAny || !tHasAny) return { score: 0 };
+
+  // 片方のmin/maxが欠けている場合は推定で補完
+  const pMinV = pMin ?? pMax!;
+  const pMaxV = pMax ?? pMin!;
+  const tMinV = tMin ?? tMax!;
+  const tMaxV = tMax ?? tMin!;
+
+  const left = Math.max(pMinV, tMinV);
+  const right = Math.min(pMaxV, tMaxV);
+  if (right >= left) {
+    // 重なりの幅に応じてスコア調整
+    const overlap = right - left;
+    const totalRange = Math.max(pMaxV, tMaxV) - Math.min(pMinV, tMinV);
+    const ratio = totalRange > 0 ? overlap / totalRange : 1;
+    return { score: Math.round(10 + 10 * ratio) }; // 10〜20
+  }
   const gap = left - right; // 万
-  if (gap <= 5) return { score: 10, reason: '単価ズレ小' };
+  if (gap <= 5) return { score: 8, reason: '単価ズレ小' };
   if (gap <= 10) return { score: 0, reason: '単価ズレ中' };
   return { score: -15, reason: '単価ズレ大' };
 }
@@ -1781,20 +1874,32 @@ app.get('/api/matches', async (req: Request, res: Response) => {
         const tKw = extractKeywords(tText);
         const common = [...pKw].filter((w) => tKw.has(w)).length;
         const union = new Set([...pKw, ...tKw]).size;
-        const keywordScore = union > 0 ? Math.round(15 * (common / union)) : 0;
+        const keywordScore = union > 0 ? Math.round(20 * (common / union)) : 0;
 
         const techCommon = [...pTech].filter((w) => tTech.has(w)).length;
         const techUnion = new Set([...pTech, ...tTech]).size;
-        const techScore = techUnion > 0 ? Math.round(45 * (techCommon / techUnion)) : 0;
+        // techが少ない場合は共通数ベースのスコアも混ぜてスコア差を出す
+        const techJaccardScore = techUnion > 0 ? Math.round(30 * (techCommon / techUnion)) : 0;
+        const techCountBonus = Math.min(15, techCommon * 5); // 共通1つにつき5点、最大15
+        const techScore = Math.min(45, techJaccardScore + techCountBonus);
 
         // Price / location / start / remote
-        const priceScore = Math.max(0, overlapScore(pPrice.min, pPrice.max, tPrice.min, tPrice.max).score);
+        const priceResult = overlapScore(pPrice.min, pPrice.max, tPrice.min, tPrice.max);
+        const priceScore = Math.max(0, priceResult.score);
 
         const location = locationScore(pLoc, tLoc, remoteFlagProject, tText);
         const startScore = pStart && tStart && pStart === tStart ? 10 : pStart && tStart ? 4 : 0;
-        const remoteScore = remoteFlagProject === true && /リモ|在宅|フルリモ|テレワ/.test(tText) ? 10 : remoteFlagProject === false ? 5 : 0;
+        // リモートマッチ: 両方リモート希望なら高スコア、片方常駐希望でミスマッチならマイナス
+        let remoteScore = 0;
+        if (remoteFlagProject === true && /リモ|在宅|フルリモ|テレワ/.test(tText)) {
+          remoteScore = 10;
+        } else if (remoteFlagProject === false && /リモ|在宅|フルリモ|テレワ/.test(tText) && !/(常駐|出社)/.test(tText)) {
+          remoteScore = -5; // 常駐案件にリモート希望人材 → ミスマッチ
+        } else if (remoteFlagProject === true) {
+          remoteScore = 3; // リモートOK案件だがリモート明記なし → 少しプラス
+        }
 
-        const base = 15;
+        const base = 10;
         const scoreRaw = base + keywordScore + techScore + priceScore + location + startScore + remoteScore;
         const score = Math.max(0, Math.min(100, Math.round(scoreRaw)));
         const isRecommended = score >= SCORE_THRESHOLD;
@@ -1897,11 +2002,19 @@ function headerValue(headers: any[] | undefined, name: string): string {
 
 function autoClassifyFromText(text: string): 'project' | 'talent' | null {
   const t = text;
-  // 両方出るケースは「案件」優先（案件メールに「要員」「人材」ワードが混ざることがある）
-  const looksProject = /\[?案件\]?|募集|要件|勤務地|面談\d回|単価\s*[:：]|商流|最寄|駅/.test(t);
-  const looksTalent = /\[?人材\]?|スキルシート|要員情報|要員\b|希望単価|経歴|年齢\s*[:：]|稼働|参画|スキル\s*[:：]/.test(t);
-  if (looksProject) return 'project';
-  if (looksTalent) return 'talent';
+  // SES業界特有のキーワードを網羅的にカバー
+  const projectKeywords = /\[?案件\]?|案件情報|案件のご紹介|案件のご案内|案件についてご連絡|募集|要件|勤務地|面談\d回|単価\s*[:：]|商流|最寄|駅|【案件】|■案件|━.*案件|開発案件|運用案件|構築案件|PMO案件|要員募集|エンジニア募集|技術者募集|案件名|プロジェクト名|作業内容|工程|必須スキル|必要スキル|歓迎スキル|尚可|精算|清算|超過|控除|面談回数|就業|就業場所|作業場所|期間|長期|短期|即日|支払サイト|支払いサイト|外国籍不可|外国籍NG|日本国籍/.test(t);
+  const talentKeywords = /\[?人材\]?|人材情報|人材のご紹介|人材のご提案|人材をご紹介|スキルシート|要員情報|要員のご紹介|要員をご紹介|要員\b|希望単価|経歴|年齢\s*[:：]|稼働|参画|スキル\s*[:：]|【人材】|■人材|━.*人材|技術者のご紹介|エンジニアのご紹介|ご提案|ご紹介させて|得意分野|経験年数|生年|年齢|国籍|性別|学歴|最終学歴|資格|稼働可能|参画可能|即稼働|フリーランス|業務委託|個人事業主/.test(t);
+  if (projectKeywords && !talentKeywords) return 'project';
+  if (talentKeywords && !projectKeywords) return 'talent';
+  // 両方ヒットした場合: 案件っぽい比重が高ければ案件優先
+  if (projectKeywords && talentKeywords) {
+    // 「案件名」「作業内容」「必須スキル」があれば案件寄り
+    if (/案件名|作業内容|必須スキル|プロジェクト名/.test(t)) return 'project';
+    // 「スキルシート」「経歴」「得意」があれば人材寄り
+    if (/スキルシート|経歴|得意分野|ご提案/.test(t)) return 'talent';
+    return 'project'; // デフォルト案件優先
+  }
   return null;
 }
 
@@ -1968,7 +2081,9 @@ async function importGmailMessage(gmail: any, gid: string) {
       const ai = await aiExtractAndPersist(created.id).catch(() => null);
 
       if (cls === 'project') {
-        const project = await prisma.project.create({ data: { canonicalName: (rawEmail.subject || '案件').slice(0, 200) } });
+        const aiTitle = ai?.classification === 'project' ? (ai.title ?? null) : null;
+        const canonicalName = (aiTitle || rawEmail.subject || '案件').slice(0, 200);
+        const project = await prisma.project.create({ data: { canonicalName } });
         const price = ai?.classification === 'project' ? { min: ai.fields.priceMin, max: ai.fields.priceMax } : extractPriceMan(sourceText);
         await prisma.projectOffer.create({
           data: {
@@ -1985,12 +2100,19 @@ async function importGmailMessage(gmail: any, gid: string) {
             remoteOk: ai?.classification === 'project' ? (ai.fields.remoteOk ?? undefined) : extractRemoteOk(sourceText) ?? undefined,
             startPeriod: ai?.classification === 'project' ? (ai.fields.startPeriod ?? undefined) : extractStartText(sourceText) ?? undefined,
             nationalityRequirement: ai?.classification === 'project' ? (ai.fields.nationalityRequirement ?? undefined) : extractNationality(sourceText) ?? undefined,
+            requiredSkillIds: ai?.classification === 'project' && ai.skills?.length ? JSON.stringify(ai.skills) : undefined,
+            optionalSkillIds: ai?.classification === 'project' && ai.optionalSkills?.length ? JSON.stringify(ai.optionalSkills) : undefined,
+            duration: ai?.classification === 'project' ? (ai.duration ?? undefined) : undefined,
             extractedAt: new Date(),
           },
         });
       } else {
-        const talent = await prisma.talent.create({ data: {} });
+        const aiName = ai?.classification === 'talent' ? (ai.name ?? null) : null;
+        const talent = await prisma.talent.create({ data: { canonicalName: aiName ?? undefined } });
         const price = ai?.classification === 'talent' ? { min: ai.fields.hopePriceMin, max: ai.fields.hopePriceMax } : extractPriceMan(sourceText);
+        const skillIdsWithYears = ai?.classification === 'talent' && ai.skills?.length
+          ? JSON.stringify(ai.skills.map((s: string) => ({ skillId: s, years: null })))
+          : undefined;
         await prisma.talentOffer.create({
           data: {
             talentId: talent.id,
@@ -2005,6 +2127,7 @@ async function importGmailMessage(gmail: any, gid: string) {
             workLocationPreference: ai?.classification === 'talent' ? (ai.fields.workLocationPreference ?? undefined) : extractLocationText(sourceText) ?? undefined,
             startAvailableDate: ai?.classification === 'talent' ? (ai.fields.startAvailableDate ?? undefined) : extractStartText(sourceText) ?? undefined,
             nationalityText: ai?.classification === 'talent' ? (ai.fields.nationalityText ?? undefined) : extractNationality(sourceText) ?? undefined,
+            skillIdsWithYears,
             extractedAt: new Date(),
           },
         });
@@ -2165,7 +2288,21 @@ app.post('/api/raw-emails/:id/classify', async (req: Request, res: Response) => 
         input: [
           {
             role: 'system',
-            content: 'あなたはSESメールの分類エンジンです。メールを「project」（案件募集）、「talent」（人材提案）、「other」（どちらでもない）に分類してください。JSON形式で返答してください。',
+            content: `あなたはSES（システムエンジニアリングサービス）業界のメール分類エンジンです。
+
+## 分類基準
+- **project**: 案件の募集・紹介メール。「案件名」「作業内容」「必須スキル」「勤務地」「単価」「面談回数」「商流」「精算」「期間」などの記載がある。
+- **talent**: 人材の提案・紹介メール。「スキルシート」「経歴」「年齢」「希望単価」「参画可能日」「得意分野」「ご提案」などの記載がある。
+- **other**: 営業メール、挨拶、会議調整、請求、その他ビジネスメール。
+
+## SES業界の特徴
+- 案件メールは━━━区切りや■項目■形式が多い
+- 1通に複数案件が含まれることがある（案件メールとして分類）
+- 「要員募集」は案件側（project）
+- 「要員ご提案」「エンジニアご紹介」は人材側（talent）
+- 件名に[案件]や[人材]とタグがつくことが多い
+
+JSON形式で返答してください。`,
           },
           {
             role: 'user',
@@ -2252,14 +2389,22 @@ app.post('/api/raw-emails/:id/extract', async (req: Request, res: Response) => {
       // AI抽出
       let extractedFields: any = {};
       if (OPENAI_API_KEY) {
-        const projectPrompt = `あなたはSESの案件メールから項目を抽出するエンジンです。日本語メールから、固定スキーマに従って情報を抽出してください。
+        const projectPrompt = `あなたはSES（システムエンジニアリングサービス）業界の案件メールから項目を抽出するエキスパートです。
 
-ルール:
+## メール形式の特徴
+- ━━━━━━ や ■■■■ で区切られたセクション
+- ■案件名■、【案件名】、◆案件名◆ のような見出し
+- 「案件名：」「単価：」「勤務地：」のようなラベル付き項目
+- 複数案件が1通に含まれる場合は最初の1件を抽出
+
+## 抽出ルール
 - 推測禁止。本文に書かれていない値は null とする。
 - 各項目について、根拠となった本文の1行（または短い抜粋）を *Evidence に書く。
 - 確信度を 0〜1 で *Confidence に付与する。曖昧な場合は低くする。
-- スキルは正規化ID（辞書の code）で返す。辞書にない表記は raw の文言をメモし、skillId は null とする。
-- 単価は「万/月」の数値で抽出してください。`;
+- スキルは技術名を正規化して返す（例: "React", "Java", "AWS"）。
+- 単価は「万/月」の数値で抽出（例: 60万〜70万 → min:60, max:70）。
+- 「〜」「～」「-」は範囲を示す。「以上」「以下」にも注意。
+- 精算幅（例: 140-180h）は単価の備考として捉え、単価自体はminMax で抽出。`;
 
         const client = getOpenAI();
         const resp = await client.responses.create({
@@ -2379,15 +2524,22 @@ app.post('/api/raw-emails/:id/extract', async (req: Request, res: Response) => {
 
       let extractedFields: any = {};
       if (OPENAI_API_KEY) {
-        const talentPrompt = `あなたはSESの人材メールから項目を抽出するエンジンです。日本語メールから、固定スキーマに従って情報を抽出してください。
+        const talentPrompt = `あなたはSES（システムエンジニアリングサービス）業界の人材メールから項目を抽出するエキスパートです。
 
-ルール:
+## メール形式の特徴
+- ━━━━━━ や ■■■■ で区切られたセクション
+- 「氏名：」「年齢：」「スキル：」のようなラベル付き項目
+- スキルシートが添付されている旨の記載
+- 「T.K様」「田中（仮名）」のようなイニシャルや仮名
+
+## 抽出ルール
 - 推測禁止。本文に書かれていない値は null とする。
 - 各項目について、根拠となった本文の1行（または短い抜粋）を *Evidence に書く。
 - 確信度を 0〜1 で *Confidence に付与する。曖昧な場合は低くする。
-- スキルは正規化ID（辞書の code）で返す。辞書にない表記は raw の文言をメモし、skillId は null とする。
-- スキルシートがURLや添付で言及されていれば反映する。
-- 単価は「万/月」の数値で抽出してください。`;
+- スキルは技術名を正規化して返す（例: "React", "Java", "AWS"）。経歴から読み取れる技術も含める。
+- スキルシートがURLや添付で言及されていれば skillSheetUrl に反映する。
+- 単価は「万/月」の数値で抽出してください。
+- 名前はイニシャル・仮名・頭文字でもそのまま抽出する。`;
 
         const client = getOpenAI();
         const resp = await client.responses.create({
@@ -2514,18 +2666,34 @@ app.post('/api/raw-emails/:id/extract', async (req: Request, res: Response) => {
   }
 });
 
-/** 一括処理: POST /api/raw-emails/process-all */
-app.post('/api/raw-emails/process-all', async (_req: Request, res: Response) => {
+/** 一括処理: POST /api/raw-emails/process-all
+ * body: { force?: boolean } — forceがtrueなら全メールを再処理（既存のProjectOffer/TalentOfferを上書き）
+ */
+app.post('/api/raw-emails/process-all', async (req: Request, res: Response) => {
   try {
-    // pending + classification=null（未分類）+ classified（分類済みだが未抽出）をまとめて処理
+    const force = (req.body as any)?.force === true;
+
+    // forceモードなら全メールを対象にする（other以外）
+    const whereClause = force
+      ? {
+          OR: [
+            { classification: 'project' },
+            { classification: 'talent' },
+            { classification: null },
+            { processingStatus: 'pending' },
+            { processingStatus: 'classified' },
+          ],
+        }
+      : {
+          OR: [
+            { processingStatus: 'pending' },
+            { processingStatus: 'classified' },
+            { classification: null },
+          ],
+        };
+
     const unprocessed = await prisma.rawEmail.findMany({
-      where: {
-        OR: [
-          { processingStatus: 'pending' },
-          { processingStatus: 'classified' },
-          { classification: null },
-        ],
-      },
+      where: whereClause,
       orderBy: { receivedAt: 'desc' },
       take: 200,
     });
@@ -2567,49 +2735,71 @@ app.post('/api/raw-emails/process-all', async (_req: Request, res: Response) => 
 
         if (classification === 'project') {
           const existingOffer = await prisma.projectOffer.findFirst({ where: { rawEmailId: rawEmail.id } });
-          if (!existingOffer) {
-            const project = await prisma.project.create({ data: { canonicalName: (rawEmail.subject || '案件').slice(0, 200) } });
-            const price = ai?.classification === 'project' ? { min: ai.fields.priceMin, max: ai.fields.priceMax } : extractPriceMan(sourceText);
+          const aiTitle = ai?.classification === 'project' ? (ai.title ?? null) : null;
+          const canonicalName = (aiTitle || rawEmail.subject || '案件').slice(0, 200);
+          const price = ai?.classification === 'project' ? { min: ai.fields.priceMin, max: ai.fields.priceMax } : extractPriceMan(sourceText);
+          const offerData = {
+            senderDomain,
+            salesOwnerEmail: salesOwnerEmail ?? undefined,
+            salesOwnerName: salesOwnerName ?? undefined,
+            priceMin: price.min,
+            priceMax: price.max,
+            supplyChainDepth: ai?.classification === 'project' ? (ai.fields.supplyChainDepth ?? undefined) : extractSupplyChainDepth(sourceText) ?? undefined,
+            interviewCount: ai?.classification === 'project' ? (ai.fields.interviewCount ?? undefined) : extractInterviewCount(sourceText) ?? undefined,
+            workLocation: ai?.classification === 'project' ? (ai.fields.workLocation ?? undefined) : extractLocationText(sourceText) ?? undefined,
+            remoteOk: ai?.classification === 'project' ? (ai.fields.remoteOk ?? undefined) : extractRemoteOk(sourceText) ?? undefined,
+            startPeriod: ai?.classification === 'project' ? (ai.fields.startPeriod ?? undefined) : extractStartText(sourceText) ?? undefined,
+            nationalityRequirement: ai?.classification === 'project' ? (ai.fields.nationalityRequirement ?? undefined) : extractNationality(sourceText) ?? undefined,
+            requiredSkillIds: ai?.classification === 'project' && ai.skills?.length ? JSON.stringify(ai.skills) : undefined,
+            optionalSkillIds: ai?.classification === 'project' && ai.optionalSkills?.length ? JSON.stringify(ai.optionalSkills) : undefined,
+            duration: ai?.classification === 'project' ? (ai.duration ?? undefined) : undefined,
+            extractedAt: new Date(),
+          };
+
+          if (existingOffer && force) {
+            // 上書きモード: 既存のProjectOfferを更新
+            await prisma.projectOffer.update({ where: { id: existingOffer.id }, data: offerData });
+            // Projectのcanonical nameも更新
+            await prisma.project.update({ where: { id: existingOffer.projectId }, data: { canonicalName } }).catch(() => void 0);
+          } else if (!existingOffer) {
+            const project = await prisma.project.create({ data: { canonicalName } });
             await prisma.projectOffer.create({
-              data: {
-                projectId: project.id,
-                rawEmailId: rawEmail.id,
-                senderDomain,
-                salesOwnerEmail: salesOwnerEmail ?? undefined,
-                salesOwnerName: salesOwnerName ?? undefined,
-                priceMin: price.min,
-                priceMax: price.max,
-                supplyChainDepth: ai?.classification === 'project' ? (ai.fields.supplyChainDepth ?? undefined) : extractSupplyChainDepth(sourceText) ?? undefined,
-                interviewCount: ai?.classification === 'project' ? (ai.fields.interviewCount ?? undefined) : extractInterviewCount(sourceText) ?? undefined,
-                workLocation: ai?.classification === 'project' ? (ai.fields.workLocation ?? undefined) : extractLocationText(sourceText) ?? undefined,
-                remoteOk: ai?.classification === 'project' ? (ai.fields.remoteOk ?? undefined) : extractRemoteOk(sourceText) ?? undefined,
-                startPeriod: ai?.classification === 'project' ? (ai.fields.startPeriod ?? undefined) : extractStartText(sourceText) ?? undefined,
-                nationalityRequirement: ai?.classification === 'project' ? (ai.fields.nationalityRequirement ?? undefined) : extractNationality(sourceText) ?? undefined,
-                extractedAt: new Date(),
-              },
+              data: { projectId: project.id, rawEmailId: rawEmail.id, ...offerData },
             });
           }
         } else {
           const existingOffer = await prisma.talentOffer.findFirst({ where: { rawEmailId: rawEmail.id } });
-          if (!existingOffer) {
-            const talent = await prisma.talent.create({ data: {} });
-            const price = ai?.classification === 'talent' ? { min: ai.fields.hopePriceMin, max: ai.fields.hopePriceMax } : extractPriceMan(sourceText);
+          const aiName = ai?.classification === 'talent' ? (ai.name ?? null) : null;
+          const price = ai?.classification === 'talent' ? { min: ai.fields.hopePriceMin, max: ai.fields.hopePriceMax } : extractPriceMan(sourceText);
+          const skillIdsWithYears = ai?.classification === 'talent' && ai.skills?.length
+            ? JSON.stringify(ai.skills.map((s: string) => ({ skillId: s, years: null })))
+            : undefined;
+          const offerData = {
+            senderDomain,
+            salesOwnerEmail: salesOwnerEmail ?? undefined,
+            salesOwnerName: salesOwnerName ?? undefined,
+            hopePriceMin: price.min,
+            hopePriceMax: price.max,
+            age: ai?.classification === 'talent' ? (ai.fields.age ?? undefined) : extractAge(sourceText) ?? undefined,
+            employmentTypeText: ai?.classification === 'talent' ? (ai.fields.employmentTypeText ?? undefined) : extractEmploymentTypeText(sourceText) ?? undefined,
+            workLocationPreference: ai?.classification === 'talent' ? (ai.fields.workLocationPreference ?? undefined) : extractLocationText(sourceText) ?? undefined,
+            startAvailableDate: ai?.classification === 'talent' ? (ai.fields.startAvailableDate ?? undefined) : extractStartText(sourceText) ?? undefined,
+            nationalityText: ai?.classification === 'talent' ? (ai.fields.nationalityText ?? undefined) : extractNationality(sourceText) ?? undefined,
+            skillIdsWithYears,
+            extractedAt: new Date(),
+          };
+
+          if (existingOffer && force) {
+            // 上書きモード: 既存のTalentOfferを更新
+            await prisma.talentOffer.update({ where: { id: existingOffer.id }, data: offerData });
+            // Talentのcanonical nameも更新
+            if (aiName) {
+              await prisma.talent.update({ where: { id: existingOffer.talentId }, data: { canonicalName: aiName } }).catch(() => void 0);
+            }
+          } else if (!existingOffer) {
+            const talent = await prisma.talent.create({ data: { canonicalName: aiName ?? undefined } });
             await prisma.talentOffer.create({
-              data: {
-                talentId: talent.id,
-                rawEmailId: rawEmail.id,
-                senderDomain,
-                salesOwnerEmail: salesOwnerEmail ?? undefined,
-                salesOwnerName: salesOwnerName ?? undefined,
-                hopePriceMin: price.min,
-                hopePriceMax: price.max,
-                age: ai?.classification === 'talent' ? (ai.fields.age ?? undefined) : extractAge(sourceText) ?? undefined,
-                employmentTypeText: ai?.classification === 'talent' ? (ai.fields.employmentTypeText ?? undefined) : extractEmploymentTypeText(sourceText) ?? undefined,
-                workLocationPreference: ai?.classification === 'talent' ? (ai.fields.workLocationPreference ?? undefined) : extractLocationText(sourceText) ?? undefined,
-                startAvailableDate: ai?.classification === 'talent' ? (ai.fields.startAvailableDate ?? undefined) : extractStartText(sourceText) ?? undefined,
-                nationalityText: ai?.classification === 'talent' ? (ai.fields.nationalityText ?? undefined) : extractNationality(sourceText) ?? undefined,
-                extractedAt: new Date(),
-              },
+              data: { talentId: talent.id, rawEmailId: rawEmail.id, ...offerData },
             });
           }
         }
@@ -2893,18 +3083,28 @@ app.post('/api/match', async (req: Request, res: Response) => {
         const tKw = extractKeywords(tText);
         const kwCommon = [...pKw].filter((w) => tKw.has(w)).length;
         const kwUnion = new Set([...pKw, ...tKw]).size;
-        const keywordScore = kwUnion > 0 ? Math.round(15 * (kwCommon / kwUnion)) : 0;
+        const keywordScore = kwUnion > 0 ? Math.round(20 * (kwCommon / kwUnion)) : 0;
 
         const techCommon = [...pTech].filter((w) => tTech.has(w)).length;
         const techUnion = new Set([...pTech, ...tTech]).size;
-        const techScore = techUnion > 0 ? Math.round(45 * (techCommon / techUnion)) : 0;
+        const techJaccardScore = techUnion > 0 ? Math.round(30 * (techCommon / techUnion)) : 0;
+        const techCountBonus = Math.min(15, techCommon * 5);
+        const techScore = Math.min(45, techJaccardScore + techCountBonus);
 
-        const priceScore = Math.max(0, overlapScore(pPrice.min, pPrice.max, tPrice.min, tPrice.max).score);
+        const priceResult = overlapScore(pPrice.min, pPrice.max, tPrice.min, tPrice.max);
+        const priceScore = Math.max(0, priceResult.score);
         const locScore = locationScore(pLoc, tLoc, remoteFlagProject, tText);
         const startScore = pStart && tStart && pStart === tStart ? 10 : pStart && tStart ? 4 : 0;
-        const remoteScore = remoteFlagProject === true && /リモ|在宅|フルリモ|テレワ/.test(tText) ? 10 : remoteFlagProject === false ? 5 : 0;
+        let remoteScore = 0;
+        if (remoteFlagProject === true && /リモ|在宅|フルリモ|テレワ/.test(tText)) {
+          remoteScore = 10;
+        } else if (remoteFlagProject === false && /リモ|在宅|フルリモ|テレワ/.test(tText) && !/(常駐|出社)/.test(tText)) {
+          remoteScore = -5;
+        } else if (remoteFlagProject === true) {
+          remoteScore = 3;
+        }
 
-        const base = 15;
+        const base = 10;
         const scoreRaw = base + keywordScore + techScore + priceScore + locScore + startScore + remoteScore;
         const score = Math.max(0, Math.min(100, Math.round(scoreRaw)));
         const isRecommended = score >= SCORE_THRESHOLD;
