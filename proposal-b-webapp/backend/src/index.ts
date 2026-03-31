@@ -227,7 +227,6 @@ app.get('/api/raw-emails', async (req: Request, res: Response) => {
           toAddr: true,
           salesOwnerEmail: true,
           salesOwnerName: true,
-          bodyText: true,
           receivedAt: true,
           classification: true,
           processingStatus: true,
@@ -2518,10 +2517,17 @@ app.post('/api/raw-emails/:id/extract', async (req: Request, res: Response) => {
 /** 一括処理: POST /api/raw-emails/process-all */
 app.post('/api/raw-emails/process-all', async (_req: Request, res: Response) => {
   try {
+    // pending + classification=null（未分類）+ classified（分類済みだが未抽出）をまとめて処理
     const unprocessed = await prisma.rawEmail.findMany({
-      where: { processingStatus: 'pending' },
+      where: {
+        OR: [
+          { processingStatus: 'pending' },
+          { processingStatus: 'classified' },
+          { classification: null },
+        ],
+      },
       orderBy: { receivedAt: 'desc' },
-      take: 100,
+      take: 200,
     });
 
     const results: Array<{ id: string; classification: string | null; status: string; error?: string }> = [];
@@ -2622,6 +2628,54 @@ app.post('/api/raw-emails/process-all', async (_req: Request, res: Response) => 
     res.json({ processed: results.length, results });
   } catch (e) {
     console.error('POST /api/raw-emails/process-all', e);
+    sendError(res, 'SERVER_ERROR', String(e), 500);
+  }
+});
+
+/** 未分類メール一括分類: POST /api/raw-emails/classify-all */
+app.post('/api/raw-emails/classify-all', async (_req: Request, res: Response) => {
+  try {
+    const unclassified = await prisma.rawEmail.findMany({
+      where: { classification: null },
+      orderBy: { receivedAt: 'desc' },
+      take: 200,
+    });
+
+    const results: Array<{ id: string; classification: string | null; status: string }> = [];
+
+    for (const rawEmail of unclassified) {
+      try {
+        const text = `${rawEmail.subject ?? ''}\n${rawEmail.bodyText ?? ''}`;
+        let classification = autoClassifyFromText(text);
+
+        if (!classification && OPENAI_API_KEY) {
+          const ai = await aiExtractAndPersist(rawEmail.id).catch(() => null);
+          classification = ai?.classification ?? null;
+        }
+
+        if (!classification) {
+          await prisma.rawEmail.update({
+            where: { id: rawEmail.id },
+            data: { classification: 'other', processingStatus: 'skipped' },
+          });
+          results.push({ id: rawEmail.id, classification: 'other', status: 'skipped' });
+          continue;
+        }
+
+        await prisma.rawEmail.update({
+          where: { id: rawEmail.id },
+          data: { classification, processingStatus: 'classified' },
+        });
+        results.push({ id: rawEmail.id, classification, status: 'classified' });
+      } catch (e) {
+        console.error(`classify-all: failed for ${rawEmail.id}`, e);
+        results.push({ id: rawEmail.id, classification: null, status: 'error' });
+      }
+    }
+
+    res.json({ processed: results.length, results });
+  } catch (e) {
+    console.error('POST /api/raw-emails/classify-all', e);
     sendError(res, 'SERVER_ERROR', String(e), 500);
   }
 });

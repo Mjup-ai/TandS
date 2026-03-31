@@ -10,7 +10,6 @@ interface RawEmail {
   toAddr: string | null;
   salesOwnerEmail: string | null;
   salesOwnerName: string | null;
-  bodyText: string | null;
   receivedAt: string;
   classification: string | null;
   processingStatus: string;
@@ -99,6 +98,7 @@ export default function InboxPage() {
   const [classifyingId, setClassifyingId] = useState<string | null>(null);
   const [extractingId, setExtractingId] = useState<string | null>(null);
   const [processingAll, setProcessingAll] = useState(false);
+  const [classifyingAll, setClassifyingAll] = useState(false);
   const emlInputRef = useRef<HTMLInputElement | null>(null);
 
   const handleEmlImport = () => {
@@ -246,6 +246,27 @@ export default function InboxPage() {
       .finally(() => setExtractingId(null));
   };
 
+  const classifyAll = () => {
+    setClassifyingAll(true);
+    setMessage(null);
+    apiFetch('/api/raw-emails/classify-all', { method: 'POST' })
+      .then((r) => r.json())
+      .then((data) => {
+        if (data.code) {
+          setMessage({ type: 'error', text: (data as ApiError).message || '一括分類に失敗しました。' });
+          return;
+        }
+        const results = data.results ?? [];
+        const projectCount = results.filter((r: { classification: string }) => r.classification === 'project').length;
+        const talentCount = results.filter((r: { classification: string }) => r.classification === 'talent').length;
+        const otherCount = results.filter((r: { classification: string }) => r.classification === 'other').length;
+        setMessage({ type: 'success', text: `一括分類完了: ${data.processed ?? 0}件（案件${projectCount} / 人材${talentCount} / その他${otherCount}）` });
+        load();
+      })
+      .catch(() => setMessage({ type: 'error', text: '通信エラーです。' }))
+      .finally(() => setClassifyingAll(false));
+  };
+
   const processAll = () => {
     setProcessingAll(true);
     setMessage(null);
@@ -256,7 +277,11 @@ export default function InboxPage() {
           setMessage({ type: 'error', text: (data as ApiError).message || '一括処理に失敗しました。' });
           return;
         }
-        setMessage({ type: 'success', text: `一括処理が完了しました。（${data.processed ?? '?'} 件処理）` });
+        const results = data.results ?? [];
+        const extracted = results.filter((r: { status: string }) => r.status === 'extracted').length;
+        const skipped = results.filter((r: { status: string }) => r.status === 'skipped').length;
+        const errors = results.filter((r: { status: string }) => r.status === 'error').length;
+        setMessage({ type: 'success', text: `一括処理完了: ${data.processed ?? 0}件（抽出${extracted} / スキップ${skipped}${errors > 0 ? ` / エラー${errors}` : ''}）` });
         load();
       })
       .catch(() => setMessage({ type: 'error', text: '通信エラーです。' }))
@@ -467,17 +492,47 @@ export default function InboxPage() {
             <h2 className="text-base font-semibold text-slate-800">受信一覧（{total} 件）</h2>
             <p className="mt-0.5 text-sm text-slate-500">「人材」「案件」を選ぶとマッチングの台帳に振り分けられます。</p>
           </div>
-          <button
-            type="button"
-            disabled={processingAll || loading}
-            onClick={processAll}
-            className="btn-primary"
-          >
-            {processingAll ? '処理中…' : '全件一括処理'}
-          </button>
+          <div className="flex gap-2">
+            <button
+              type="button"
+              disabled={classifyingAll || loading}
+              onClick={classifyAll}
+              className="rounded-lg border border-indigo-300 bg-indigo-50 px-3 py-2 text-sm font-medium text-indigo-700 hover:bg-indigo-100 disabled:opacity-50"
+            >
+              {classifyingAll ? '分類中…' : '未分類を一括分類'}
+            </button>
+            <button
+              type="button"
+              disabled={processingAll || loading}
+              onClick={processAll}
+              className="btn-primary"
+            >
+              {processingAll ? '処理中…' : '全件一括処理（分類+抽出）'}
+            </button>
+          </div>
         </div>
         {loading ? (
-          <LoadingBlock />
+          <ul className="mt-4 space-y-3">
+            {Array.from({ length: 5 }).map((_, i) => (
+              <li key={i} className="card p-4 animate-pulse">
+                <div className="flex items-start justify-between gap-3">
+                  <div className="flex-1 space-y-2">
+                    <div className="h-4 w-3/4 rounded bg-slate-200" />
+                    <div className="h-3 w-1/2 rounded bg-slate-100" />
+                    <div className="flex gap-2 mt-2">
+                      <div className="h-5 w-20 rounded bg-slate-100" />
+                      <div className="h-5 w-16 rounded bg-slate-100" />
+                    </div>
+                  </div>
+                  <div className="flex gap-1.5">
+                    <div className="h-8 w-16 rounded-lg bg-slate-100" />
+                    <div className="h-8 w-12 rounded-lg bg-slate-100" />
+                    <div className="h-8 w-12 rounded-lg bg-slate-100" />
+                  </div>
+                </div>
+              </li>
+            ))}
+          </ul>
         ) : items.length === 0 ? (
           <div className="empty-state mt-4">
             <p className="font-medium text-slate-600">まだ1件もありません</p>
@@ -514,12 +569,7 @@ export default function InboxPage() {
                           </span>
                         ) : null}
                       </div>
-                      {m.bodyText && (
-                        <p className="mt-2 text-sm text-slate-600 line-clamp-2">
-                          {m.bodyText.slice(0, 200)}
-                          {m.bodyText.length > 200 ? '…' : ''}
-                        </p>
-                      )}
+                      {/* bodyText is loaded on-demand in detail view for performance */}
                       <div className="mt-2 flex flex-wrap items-center gap-2">
                         {m.classification ? (
                           <span
@@ -589,6 +639,12 @@ export default function InboxPage() {
                             <div>Delivered-To: {detail.deliveredToAddr || '—'}</div>
                             <div>Original Recipient: {detail.originalRecipient || '—'}</div>
                           </div>
+                          {detail.bodyText && (
+                            <div>
+                              <div className="text-xs font-semibold text-slate-500">本文</div>
+                              <pre className="mt-1 max-h-48 overflow-auto whitespace-pre-wrap rounded-md bg-white p-3 text-sm text-slate-700 border border-slate-200">{detail.bodyText}</pre>
+                            </div>
+                          )}
                           <div>
                             <div className="text-xs font-semibold text-slate-500">抽出状態</div>
                             <div className="mt-1">
