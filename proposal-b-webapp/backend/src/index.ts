@@ -180,6 +180,16 @@ app.post('/api/gmail/import-now', async (_req: Request, res: Response) => {
   }
 });
 
+app.post('/api/gmail/reset-sync', async (_req: Request, res: Response) => {
+  try {
+    await prisma.googleAuth.updateMany({ data: { lastHistoryId: null } });
+    res.json({ ok: true, message: 'historyId reset — next import will do full sync' });
+  } catch (e) {
+    console.error('POST /api/gmail/reset-sync', e);
+    sendError(res, 'SERVER_ERROR', String(e), 500);
+  }
+});
+
 /** 件数サマリ（ヘッダー表示用） */
 app.get('/api/stats', async (_req: Request, res: Response) => {
   try {
