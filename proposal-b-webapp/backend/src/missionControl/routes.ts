@@ -1,4 +1,4 @@
-import { Router } from 'express';
+import { Router, Request, Response } from 'express';
 import { requireAuth } from './auth';
 import { createMissionAdapter } from './dataAdapter';
 import { postToDiscordWebhook } from './discordWebhook';
@@ -8,17 +8,17 @@ export function createMissionControlRouter() {
   const r = Router();
   const adapter = createMissionAdapter();
 
-  r.get('/kpis', requireAuth, async (_req, res) => {
+  r.get('/kpis', requireAuth, async (_req: Request, res: Response) => {
     const kpis = await adapter.getKpis();
     res.json(kpis);
   });
 
-  r.get('/accounts', requireAuth, async (_req, res) => {
+  r.get('/accounts', requireAuth, async (_req: Request, res: Response) => {
     const items = await adapter.listAccounts();
     res.json({ items });
   });
 
-  r.get('/accounts/:id', requireAuth, async (req, res) => {
+  r.get('/accounts/:id', requireAuth, async (req: Request, res: Response) => {
     const id = req.params.id;
     const detail = await adapter.getAccountDetail(id);
     if (!detail) {
@@ -30,7 +30,7 @@ export function createMissionControlRouter() {
 
   // Optional: post message to Discord via webhook (persona-style username)
   // Also records the post into Mission Control activity feed.
-  r.post('/discord-webhook', requireAuth, async (req, res) => {
+  r.post('/discord-webhook', requireAuth, async (req: Request, res: Response) => {
     const { persona, content } = (req.body ?? {}) as { persona?: string; content?: string };
     const text = String(content ?? '');
     const result = await postToDiscordWebhook({ persona, content: text });
@@ -43,13 +43,13 @@ export function createMissionControlRouter() {
   });
 
   // Activity feed (read)
-  r.get('/activity', requireAuth, async (req, res) => {
+  r.get('/activity', requireAuth, async (req: Request, res: Response) => {
     const limit = Number(req.query.limit ?? 50);
     res.json({ items: getActivity(Number.isFinite(limit) ? limit : 50) });
   });
 
   // Activity feed (write) - used to mirror chat-like command logs (T# threads)
-  r.post('/activity', requireAuth, async (req, res) => {
+  r.post('/activity', requireAuth, async (req: Request, res: Response) => {
     const { persona, to, kind, ticket, text } = (req.body ?? {}) as {
       persona?: string;
       to?: string;
@@ -74,7 +74,7 @@ export function createMissionControlRouter() {
   });
 
   // Thread list (derived from activity events with ticket)
-  r.get('/threads', requireAuth, async (req, res) => {
+  r.get('/threads', requireAuth, async (req: Request, res: Response) => {
     const limit = Number(req.query.limit ?? 50);
     const items = getActivity(200)
       .filter((a) => Boolean(a.ticket))
@@ -123,7 +123,7 @@ export function createMissionControlRouter() {
   });
 
   // Thread messages
-  r.get('/threads/:ticket', requireAuth, async (req, res) => {
+  r.get('/threads/:ticket', requireAuth, async (req: Request, res: Response) => {
     const ticket = String(req.params.ticket ?? '');
     if (!ticket) {
       res.status(400).json({ code: 'BAD_REQUEST', message: 'ticket is required' });
@@ -139,12 +139,12 @@ export function createMissionControlRouter() {
   });
 
   // Presence (read)
-  r.get('/presence', requireAuth, async (_req, res) => {
+  r.get('/presence', requireAuth, async (_req: Request, res: Response) => {
     res.json({ presence: getPresence() });
   });
 
   // Presence (touch)
-  r.post('/presence', requireAuth, async (req, res) => {
+  r.post('/presence', requireAuth, async (req: Request, res: Response) => {
     const { persona } = (req.body ?? {}) as { persona?: string };
     const row = touchPresence(String(persona ?? 'moru'));
     res.json({ ok: true, ...row });
