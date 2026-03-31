@@ -1,7 +1,6 @@
-import { useEffect, useState } from 'react';
+import { useState } from 'react';
 import { APP_NAME } from './config';
-import { authLogin, authLogout, authMe } from './lib/api';
-import LoginPage from './pages/LoginPage';
+// import { authLogout } from './lib/api';
 import InboxPage from './pages/InboxPage';
 import ProjectsPage from './pages/ProjectsPage';
 import TalentsPage from './pages/TalentsPage';
@@ -28,37 +27,8 @@ type View =
   | 'chat';
 
 export default function App() {
-  const [authenticated, setAuthenticated] = useState(true);
-  const [loginError, setLoginError] = useState<string | null>(null);
-
   const [view, setView] = useState<View>('inbox');
   const [selectedAccountId, setSelectedAccountId] = useState<string | null>(null);
-
-  if (!authenticated) {
-    return (
-      <div className="min-h-screen bg-slate-50">
-        <header className="border-b border-slate-200 bg-white shadow-card">
-          <div className="mx-auto max-w-6xl px-4 py-4 sm:px-6">
-            <h1 className="text-lg font-bold text-slate-800 sm:text-xl">{APP_NAME}</h1>
-          </div>
-        </header>
-        <main className="mx-auto max-w-6xl px-4 py-10 sm:px-6">
-          <LoginPage
-            error={loginError}
-            onLogin={async (password) => {
-              setLoginError(null);
-              try {
-                await authLogin(password);
-                setAuthenticated(true);
-              } catch (e) {
-                setLoginError('Login failed');
-              }
-            }}
-          />
-        </main>
-      </div>
-    );
-  }
 
   const nav = [
     { id: 'inbox' as const, label: '受信一覧' },
@@ -100,16 +70,7 @@ export default function App() {
             </nav>
           </div>
 
-          <button
-            type="button"
-            className="rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm font-semibold text-slate-800 hover:bg-slate-50"
-            onClick={async () => {
-              await authLogout();
-              setAuthenticated(false);
-            }}
-          >
-            Logout
-          </button>
+          <div />
         </div>
       </header>
 
