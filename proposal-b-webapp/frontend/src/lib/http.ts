@@ -7,5 +7,8 @@ export function apiUrl(path: string): string {
 }
 
 export function apiFetch(input: string, init?: RequestInit): Promise<Response> {
-  return fetch(apiUrl(input), init);
+  return fetch(apiUrl(input), {
+    ...init,
+    credentials: 'include',
+  });
 }

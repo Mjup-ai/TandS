@@ -1,4 +1,4 @@
-export const APP_NAME = 'Mission Control';
+export const APP_NAME = 'TandS SESマッチング';
 
 export const DISCORD_PERSONAS: Array<{ key: string; label: string }> = [
   { key: 'moru', label: 'もる' },
