@@ -28,28 +28,11 @@ type View =
   | 'chat';
 
 export default function App() {
-  const [loading, setLoading] = useState(true);
-  const [authenticated, setAuthenticated] = useState(false);
+  const [authenticated, setAuthenticated] = useState(true);
   const [loginError, setLoginError] = useState<string | null>(null);
 
   const [view, setView] = useState<View>('inbox');
   const [selectedAccountId, setSelectedAccountId] = useState<string | null>(null);
-
-  useEffect(() => {
-    authMe()
-      .then((d) => {
-        setAuthenticated(Boolean(d.authenticated));
-        setLoading(false);
-      })
-      .catch(() => {
-        setAuthenticated(false);
-        setLoading(false);
-      });
-  }, []);
-
-  if (loading) {
-    return <div className="min-h-screen bg-slate-50" />;
-  }
 
   if (!authenticated) {
     return (
