@@ -18,7 +18,7 @@ services:
           name: tands-db
           property: connectionString
       - key: PORT
-        value: 4000
+        value: 10000
       - key: NODE_ENV
         value: production
       - key: OPENAI_API_KEY
