@@ -18,10 +18,11 @@ export function issueAuthCookie(res: Response) {
   const sig = sign(value, password);
   const token = Buffer.from(value).toString('base64url') + '.' + sig;
 
+  const isProduction = process.env.NODE_ENV === 'production';
   res.cookie(MISSION_CONTROL_COOKIE_NAME, token, {
     httpOnly: true,
-    sameSite: 'lax',
-    secure: false, // set true behind HTTPS
+    sameSite: isProduction ? 'none' : 'lax',
+    secure: isProduction,
     path: '/',
     maxAge: 1000 * 60 * 60 * 24 * 14, // 14 days
   });
