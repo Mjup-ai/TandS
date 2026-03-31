@@ -55,15 +55,13 @@ const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 10 
 app.use(express.json({ limit: '1mb' }));
 // app.use(cookieParser());
 
-const FRONTEND_ORIGIN = process.env.FRONTEND_ORIGIN ?? '';
-if (FRONTEND_ORIGIN) {
-  app.use(
-    cors({
-      origin: FRONTEND_ORIGIN,
-      credentials: true,
-    })
-  );
-}
+const FRONTEND_ORIGIN = (process.env.FRONTEND_ORIGIN ?? '').replace(/\/+$/, '');
+app.use(
+  cors({
+    origin: FRONTEND_ORIGIN || true,
+    credentials: true,
+  })
+);
 
 
 /** 共通エラー形式（プロ視点：運用・保守性） */
