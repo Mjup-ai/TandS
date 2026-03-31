@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
-import LoadingBlock from '../components/LoadingBlock';
+
 import MessageBar from '../components/MessageBar';
 import { apiFetch } from '../lib/http';
 
@@ -21,6 +21,7 @@ interface ApiError {
 }
 
 interface RawEmailDetail extends RawEmail {
+  bodyText?: string | null;
   ccAddr?: string | null;
   deliveredToAddr?: string | null;
   originalRecipient?: string | null;
