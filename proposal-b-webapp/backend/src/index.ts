@@ -24,7 +24,7 @@ const GOOGLE_CLIENT_SECRET = process.env.GOOGLE_CLIENT_SECRET ?? '';
 const GOOGLE_REDIRECT_URI = process.env.GOOGLE_REDIRECT_URI ?? `http://127.0.0.1:${PORT}/api/google/oauth2/callback`;
 const GMAIL_IMPORT_ACCOUNT = process.env.GMAIL_IMPORT_ACCOUNT ?? '';
 const GMAIL_IMPORT_POLL_SEC = Number(process.env.GMAIL_IMPORT_POLL_SEC ?? 60);
-const GMAIL_IMPORT_LOOKBACK_DAYS = Number(process.env.GMAIL_IMPORT_LOOKBACK_DAYS ?? 7);
+const GMAIL_IMPORT_LOOKBACK_DAYS = Number(process.env.GMAIL_IMPORT_LOOKBACK_DAYS ?? 90);
 
 const OPENAI_API_KEY = process.env.OPENAI_API_KEY ?? '';
 const OPENAI_MODEL = process.env.OPENAI_MODEL ?? 'gpt-4.1-mini';
