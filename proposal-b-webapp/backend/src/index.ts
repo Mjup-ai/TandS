@@ -7,14 +7,13 @@ dotenv.config({ path: path.resolve(process.cwd(), '.env') });
 
 import express, { Request, Response } from 'express';
 import cors from 'cors';
-import cookieParser from 'cookie-parser';
+// import cookieParser from 'cookie-parser';
 import multer from 'multer';
 import { simpleParser } from 'mailparser';
 import { PrismaClient } from '@prisma/client';
 import { google } from 'googleapis';
 import OpenAI from 'openai';
-import { clearAuthCookie, issueAuthCookie, isAuthenticated } from './missionControl/auth';
-import { createMissionControlRouter } from './missionControl/routes';
+// MC removed — SES matching only
 
 const app = express();
 const prisma = new PrismaClient();
@@ -54,7 +53,7 @@ const GOOGLE_SCOPES = [
 const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 10 * 1024 * 1024 } }); // 10MB
 
 app.use(express.json({ limit: '1mb' }));
-app.use(cookieParser());
+// app.use(cookieParser());
 
 const FRONTEND_ORIGIN = process.env.FRONTEND_ORIGIN ?? '';
 if (FRONTEND_ORIGIN) {
@@ -84,34 +83,6 @@ app.get('/api/health', (_req, res) => {
   res.json({ ok: true, service: 'ses-match-backend' });
 });
 
-/** Mission Control Auth (single password) */
-app.get('/api/auth/me', (req: Request, res: Response) => {
-  res.json({ authenticated: isAuthenticated(req) });
-});
-
-app.post('/api/auth/login', (req: Request, res: Response) => {
-  try {
-    const body = req.body as { password?: string };
-    const password = typeof body.password === 'string' ? body.password : '';
-    const expected = process.env.MISSION_CONTROL_PASSWORD ?? '';
-    if (!expected) return sendError(res, 'SERVER_ERROR', 'MISSION_CONTROL_PASSWORD が未設定です', 500);
-    if (password !== expected) return sendError(res, 'UNAUTHORIZED', 'パスワードが違います', 401);
-
-    issueAuthCookie(res);
-    res.json({ ok: true });
-  } catch (e) {
-    console.error('POST /api/auth/login', e);
-    sendError(res, 'SERVER_ERROR', String(e), 500);
-  }
-});
-
-app.post('/api/auth/logout', (_req: Request, res: Response) => {
-  clearAuthCookie(res);
-  res.json({ ok: true });
-});
-
-/** Mission Control APIs */
-app.use('/api/mission', createMissionControlRouter());
 
 /** Google OAuth：連携開始（ブラウザで同意→callback） */
 app.get('/api/google/oauth2/start', async (req: Request, res: Response) => {
