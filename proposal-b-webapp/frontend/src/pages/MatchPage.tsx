@@ -1,16 +1,28 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useState, useCallback } from 'react';
 import LoadingBlock from '../components/LoadingBlock';
 import { apiFetch } from '../lib/http';
+
+interface DraftResult {
+  emailDraft: string;
+  callMemo: string;
+  score: number;
+  reasons: string[];
+  questions: string[];
+}
 
 interface MatchItem {
   projectOfferId: string;
   talentOfferId: string;
   projectTitle: string;
   talentTitle: string;
+  projectFromAddr: string | null;
+  talentFromAddr: string | null;
   projectSalesOwnerEmail: string | null;
   projectSalesOwnerName: string | null;
   talentSalesOwnerEmail: string | null;
   talentSalesOwnerName: string | null;
+  projectBodyText: string | null;
+  talentBodyText: string | null;
   score: number;
   scoreBreakdown: { keyword: number; base: number; tech?: number; price?: number; location?: number; start?: number; remote?: number };
   isRecommended: boolean;
@@ -75,6 +87,35 @@ export default function MatchPage() {
     setProjectSalesOwner('');
     setTalentSalesOwner('');
   }
+
+  const [draftResult, setDraftResult] = useState<DraftResult | null>(null);
+  const [draftLoading, setDraftLoading] = useState(false);
+  const [draftTarget, setDraftTarget] = useState<{ projectOfferId: string; talentOfferId: string; projectTitle: string; talentTitle: string } | null>(null);
+  const [copiedField, setCopiedField] = useState<string | null>(null);
+
+  const generateDraft = useCallback(async (projectOfferId: string, talentOfferId: string) => {
+    setDraftLoading(true);
+    setDraftResult(null);
+    try {
+      const r = await apiFetch('/api/generate-draft', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ projectOfferId, talentOfferId }),
+      });
+      const data = await r.json();
+      setDraftResult(data);
+    } catch (e) {
+      console.error('Draft generation failed:', e);
+    } finally {
+      setDraftLoading(false);
+    }
+  }, []);
+
+  const copyToClipboard = useCallback((text: string, field: string) => {
+    navigator.clipboard.writeText(text);
+    setCopiedField(field);
+    setTimeout(() => setCopiedField(null), 2000);
+  }, []);
 
   const recommendedCount = items.filter((m) => m.isRecommended).length;
   const excludedCount = items.filter((m) => m.exclusionReason).length;
@@ -201,32 +242,69 @@ export default function MatchPage() {
                         内訳: 基礎{m.scoreBreakdown.base} + キーワード{m.scoreBreakdown.keyword} + 技術{m.scoreBreakdown.tech ?? 0} + 単価{m.scoreBreakdown.price ?? 0} + 勤務地{m.scoreBreakdown.location ?? 0} + 開始{m.scoreBreakdown.start ?? 0} + リモート{m.scoreBreakdown.remote ?? 0} = {m.score}点
                       </p>
                       {/* Expanded detail */}
-                      {isExpanded && !m.exclusionReason && m.recommendationReasons.length > 0 && (
-                        <div className="mt-3 grid gap-3 lg:grid-cols-3">
-                          <div className="rounded-lg bg-emerald-50 p-3">
-                            <div className="text-xs font-semibold text-emerald-800">推薦理由</div>
-                            <ul className="mt-2 space-y-1 text-sm text-emerald-900">
-                              {m.recommendationReasons.map((reason) => (
-                                <li key={reason}>- {reason}</li>
-                              ))}
-                            </ul>
+                      {isExpanded && (
+                        <div className="mt-3 space-y-3">
+                          <div className="grid gap-3 lg:grid-cols-2">
+                            <div className="rounded-lg border border-blue-200 bg-white p-3">
+                              <div className="flex items-center justify-between gap-2">
+                                <div className="text-xs font-semibold text-blue-700">案件メール全文</div>
+                                {m.projectFromAddr && <div className="text-xs text-slate-500">{m.projectFromAddr}</div>}
+                              </div>
+                              <pre className="mt-2 max-h-64 overflow-auto whitespace-pre-wrap rounded-md bg-blue-50/60 p-3 text-sm text-slate-700">{m.projectBodyText || 'メール本文はありません。'}</pre>
+                            </div>
+                            <div className="rounded-lg border border-emerald-200 bg-white p-3">
+                              <div className="flex items-center justify-between gap-2">
+                                <div className="text-xs font-semibold text-emerald-700">人材メール全文</div>
+                                {m.talentFromAddr && <div className="text-xs text-slate-500">{m.talentFromAddr}</div>}
+                              </div>
+                              <pre className="mt-2 max-h-64 overflow-auto whitespace-pre-wrap rounded-md bg-emerald-50/60 p-3 text-sm text-slate-700">{m.talentBodyText || 'メール本文はありません。'}</pre>
+                            </div>
                           </div>
-                          <div className="rounded-lg bg-amber-50 p-3">
-                            <div className="text-xs font-semibold text-amber-800">注意点</div>
-                            <div className="mt-2 text-sm text-amber-900">{m.attentionPoint ?? '---'}</div>
-                          </div>
-                          <div className="rounded-lg bg-sky-50 p-3">
-                            <div className="text-xs font-semibold text-sky-800">確認質問</div>
-                            <ul className="mt-2 space-y-1 text-sm text-sky-900">
-                              {m.confirmationQuestions.map((question) => (
-                                <li key={question}>- {question}</li>
-                              ))}
-                            </ul>
-                          </div>
+
+                          {!m.exclusionReason && m.recommendationReasons.length > 0 && (
+                            <div className="grid gap-3 lg:grid-cols-3">
+                              <div className="rounded-lg bg-emerald-50 p-3">
+                                <div className="text-xs font-semibold text-emerald-800">推薦理由</div>
+                                <ul className="mt-2 space-y-1 text-sm text-emerald-900">
+                                  {m.recommendationReasons.map((reason) => (
+                                    <li key={reason}>- {reason}</li>
+                                  ))}
+                                </ul>
+                              </div>
+                              <div className="rounded-lg bg-amber-50 p-3">
+                                <div className="text-xs font-semibold text-amber-800">注意点</div>
+                                <div className="mt-2 text-sm text-amber-900">{m.attentionPoint ?? '---'}</div>
+                              </div>
+                              <div className="rounded-lg bg-sky-50 p-3">
+                                <div className="text-xs font-semibold text-sky-800">確認質問</div>
+                                <ul className="mt-2 space-y-1 text-sm text-sky-900">
+                                  {m.confirmationQuestions.map((question) => (
+                                    <li key={question}>- {question}</li>
+                                  ))}
+                                </ul>
+                              </div>
+                            </div>
+                          )}
+
+                          {!m.exclusionReason && m.recommendationReasons.length === 0 && (
+                            <p className="text-sm text-slate-400">推薦理由の詳細はありません。</p>
+                          )}
                         </div>
                       )}
-                      {isExpanded && !m.exclusionReason && m.recommendationReasons.length === 0 && (
-                        <p className="mt-3 text-sm text-slate-400">推薦理由の詳細はありません。</p>
+                      {isExpanded && (
+                        <div className="mt-3">
+                          <button
+                            type="button"
+                            className="btn-primary text-sm"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              setDraftTarget({ projectOfferId: m.projectOfferId, talentOfferId: m.talentOfferId, projectTitle: m.projectTitle, talentTitle: m.talentTitle });
+                              generateDraft(m.projectOfferId, m.talentOfferId);
+                            }}
+                          >
+                            📝 テンプレ文を生成
+                          </button>
+                        </div>
                       )}
                       {!isExpanded && m.recommendationReasons.length > 0 && (
                         <p className="mt-2 text-xs text-slate-400">クリックで詳細を表示</p>
@@ -248,6 +326,78 @@ export default function MatchPage() {
             })}
           </ul>
         </>
+      )}
+
+      {/* テンプレ文生成モーダル */}
+      {draftTarget && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40" onClick={() => { setDraftTarget(null); setDraftResult(null); }}>
+          <div className="mx-4 max-h-[85vh] w-full max-w-3xl overflow-y-auto rounded-2xl bg-white p-6 shadow-xl" onClick={(e) => e.stopPropagation()}>
+            <div className="flex items-center justify-between mb-4">
+              <h3 className="text-lg font-bold text-slate-800">📝 テンプレ文生成</h3>
+              <button
+                type="button"
+                className="rounded-lg px-3 py-1 text-sm text-slate-500 hover:bg-slate-100"
+                onClick={() => { setDraftTarget(null); setDraftResult(null); }}
+              >
+                ✕ 閉じる
+              </button>
+            </div>
+            <div className="mb-3 text-sm text-slate-500">
+              <span className="font-medium text-blue-700">案件:</span> {draftTarget.projectTitle.slice(0, 60)}...
+              <br />
+              <span className="font-medium text-emerald-700">人材:</span> {draftTarget.talentTitle.slice(0, 60)}...
+            </div>
+
+            {draftLoading && <LoadingBlock />}
+
+            {draftResult && (
+              <div className="space-y-4">
+                <div>
+                  <div className="flex items-center justify-between mb-2">
+                    <h4 className="text-sm font-semibold text-slate-700">📧 提案メール</h4>
+                    <div className="flex gap-2">
+                      <button
+                        type="button"
+                        className="rounded-lg bg-primary-100 px-3 py-1 text-xs font-medium text-primary-800 hover:bg-primary-200"
+                        onClick={() => copyToClipboard(draftResult.emailDraft, 'email')}
+                      >
+                        {copiedField === 'email' ? '✓ コピーしました' : 'コピー'}
+                      </button>
+                    </div>
+                  </div>
+                  <pre className="whitespace-pre-wrap rounded-xl border border-slate-200 bg-slate-50 p-4 text-sm text-slate-700 font-sans leading-relaxed">{draftResult.emailDraft}</pre>
+                </div>
+
+                <div>
+                  <div className="flex items-center justify-between mb-2">
+                    <h4 className="text-sm font-semibold text-slate-700">📞 電話メモ</h4>
+                    <div className="flex gap-2">
+                      <button
+                        type="button"
+                        className="rounded-lg bg-primary-100 px-3 py-1 text-xs font-medium text-primary-800 hover:bg-primary-200"
+                        onClick={() => copyToClipboard(draftResult.callMemo, 'memo')}
+                      >
+                        {copiedField === 'memo' ? '✓ コピーしました' : 'コピー'}
+                      </button>
+                    </div>
+                  </div>
+                  <pre className="whitespace-pre-wrap rounded-xl border border-slate-200 bg-slate-50 p-4 text-sm text-slate-700 font-sans leading-relaxed">{draftResult.callMemo}</pre>
+                </div>
+
+                <div className="flex gap-2 pt-2">
+                  <button
+                    type="button"
+                    className="btn-secondary text-sm"
+                    onClick={() => generateDraft(draftTarget.projectOfferId, draftTarget.talentOfferId)}
+                  >
+                    🔄 再生成
+                  </button>
+                  <p className="text-xs text-slate-400 self-center">※ テンプレ文を参考に、送信は担当者が行ってください</p>
+                </div>
+              </div>
+            )}
+          </div>
+        </div>
       )}
     </div>
   );
