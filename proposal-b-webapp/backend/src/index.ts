@@ -1769,15 +1769,29 @@ app.get('/api/matches', async (req: Request, res: Response) => {
       prisma.projectOffer.findMany({
         take: 100,
         orderBy: { createdAt: 'desc' },
+        where: {
+          rawEmail: {
+            is: {
+              classification: 'project',
+            },
+          },
+        },
         include: {
           project: { select: { id: true, canonicalName: true } },
-          rawEmail: { select: { subject: true, bodyText: true, fromAddr: true, salesOwnerEmail: true, salesOwnerName: true } },
+          rawEmail: { select: { subject: true, bodyText: true, fromAddr: true, salesOwnerEmail: true, salesOwnerName: true, classification: true } },
         },
       }),
       prisma.talentOffer.findMany({
         take: 100,
         orderBy: { createdAt: 'desc' },
-        include: { rawEmail: { select: { subject: true, bodyText: true, fromAddr: true, salesOwnerEmail: true, salesOwnerName: true } } },
+        where: {
+          rawEmail: {
+            is: {
+              classification: 'talent',
+            },
+          },
+        },
+        include: { rawEmail: { select: { subject: true, bodyText: true, fromAddr: true, salesOwnerEmail: true, salesOwnerName: true, classification: true } } },
       }),
     ]);
 
@@ -1816,7 +1830,10 @@ app.get('/api/matches', async (req: Request, res: Response) => {
         const pText = `${po.rawEmail?.subject ?? ''}\n${po.rawEmail?.bodyText ?? ''}`;
         const tText = `${to.rawEmail?.subject ?? ''}\n${to.rawEmail?.bodyText ?? ''}`;
 
-        // 分類ミスのガード（取り込み初期は混ざりやすいので弾く）
+        // DB上の分類済みデータのみ対象にする。加えて本文ベースの簡易ガードも残す。
+        if (po.rawEmail?.classification !== 'project' || to.rawEmail?.classification !== 'talent') {
+          continue;
+        }
         if (/案件/.test(to.rawEmail?.subject ?? '') || /案件/.test(to.rawEmail?.bodyText ?? '')) {
           continue;
         }
