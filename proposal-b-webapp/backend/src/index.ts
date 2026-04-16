@@ -22,15 +22,18 @@ const PORT = process.env.PORT ?? 4000;
 const GOOGLE_CLIENT_ID = process.env.GOOGLE_CLIENT_ID ?? '';
 const GOOGLE_CLIENT_SECRET = process.env.GOOGLE_CLIENT_SECRET ?? '';
 const GOOGLE_REDIRECT_URI = process.env.GOOGLE_REDIRECT_URI ?? `http://127.0.0.1:${PORT}/api/google/oauth2/callback`;
-const GMAIL_IMPORT_ACCOUNT = process.env.GMAIL_IMPORT_ACCOUNT ?? '';
+let GMAIL_IMPORT_ACCOUNT = process.env.GMAIL_IMPORT_ACCOUNT ?? '';
+let lastGmailError: string | null = null;
 const GMAIL_IMPORT_POLL_SEC = Number(process.env.GMAIL_IMPORT_POLL_SEC ?? 60);
 const GMAIL_IMPORT_LOOKBACK_DAYS = Number(process.env.GMAIL_IMPORT_LOOKBACK_DAYS ?? 90);
 
 const OPENAI_API_KEY = process.env.OPENAI_API_KEY ?? '';
 const OPENAI_MODEL = process.env.OPENAI_MODEL ?? 'gpt-4.1-mini';
+const SETTINGS_PASSWORD = process.env.SETTINGS_PASSWORD ?? process.env.MISSION_CONTROL_PASSWORD ?? '';
 const SALES_OWNER_ALIASES = process.env.SALES_OWNER_ALIASES ?? '';
 const AGGREGATION_MAILBOXES = process.env.AGGREGATION_MAILBOXES ?? '';
 const SALES_OWNER_CONFIG_PATH = path.resolve(process.cwd(), 'config', 'salesOwners.json');
+const ENV_PATH = path.resolve(process.cwd(), '.env');
 
 function getOpenAI() {
   if (!OPENAI_API_KEY) throw new Error('OPENAI_API_KEY が未設定です');
@@ -58,7 +61,11 @@ app.use(express.json({ limit: '1mb' }));
 const FRONTEND_ORIGIN = (process.env.FRONTEND_ORIGIN ?? '').replace(/\/+$/, '');
 app.use(
   cors({
-    origin: FRONTEND_ORIGIN || true,
+    origin: (origin, callback) => {
+      if (!FRONTEND_ORIGIN) return callback(null, true);
+      if (!origin || origin === FRONTEND_ORIGIN) return callback(null, true);
+      return callback(new Error('CORS blocked'));
+    },
     credentials: true,
   })
 );
@@ -67,6 +74,46 @@ app.use(
 /** 共通エラー形式（プロ視点：運用・保守性） */
 function sendError(res: Response, code: string, message: string, status = 400) {
   res.status(status).json({ code, message });
+}
+
+function maskSecret(value: string | null | undefined) {
+  if (!value) return '';
+  if (value.length <= 8) return '********';
+  return `${value.slice(0, 4)}${'*'.repeat(Math.max(4, value.length - 8))}${value.slice(-4)}`;
+}
+
+function requireSettingsPassword(req: Request, res: Response): boolean {
+  if (!SETTINGS_PASSWORD) {
+    sendError(res, 'SETTINGS_DISABLED', '設定変更用パスワードが未設定です。', 503);
+    return false;
+  }
+  const provided = (req.headers['x-settings-password'] as string | undefined) ?? req.body?.settingsPassword;
+  if (!provided || provided !== SETTINGS_PASSWORD) {
+    sendError(res, 'UNAUTHORIZED', '設定変更用パスワードが正しくありません。', 401);
+    return false;
+  }
+  return true;
+}
+
+function isLocalRequest(req: Request): boolean {
+  const ip = req.ip || req.socket.remoteAddress || '';
+  return ip.includes('127.0.0.1') || ip.includes('::1') || ip.includes('localhost');
+}
+
+function updateEnvFile(updates: Record<string, string>) {
+  const existing = fs.existsSync(ENV_PATH) ? fs.readFileSync(ENV_PATH, 'utf-8') : '';
+  const lines = existing ? existing.split(/\r?\n/) : [];
+
+  for (const [key, value] of Object.entries(updates)) {
+    const encoded = `\"${value.replace(/\\/g, '\\\\').replace(/\"/g, '\\\"')}\"`;
+    const nextLine = `${key}=${encoded}`;
+    const index = lines.findIndex((line) => line.startsWith(`${key}=`));
+    if (index >= 0) lines[index] = nextLine;
+    else lines.push(nextLine);
+    process.env[key] = value;
+  }
+
+  fs.writeFileSync(ENV_PATH, `${lines.filter((line, i, arr) => !(i === arr.length - 1 && line === '')).join('\n')}\n`, 'utf-8');
 }
 
 /** 入力バリデーション（プロ視点：セキュリティ） */
@@ -207,7 +254,80 @@ app.get('/api/stats', async (_req: Request, res: Response) => {
 
 /** 設定（閾値など） */
 app.get('/api/config', (_req: Request, res: Response) => {
-  res.json({ scoreThreshold: SCORE_THRESHOLD, gmailLookbackDays: GMAIL_IMPORT_LOOKBACK_DAYS, gmailAccount: GMAIL_IMPORT_ACCOUNT });
+  res.json({
+    scoreThreshold: SCORE_THRESHOLD,
+    gmailLookbackDays: GMAIL_IMPORT_LOOKBACK_DAYS,
+    gmailAccount: GMAIL_IMPORT_ACCOUNT,
+    frontendOrigin: FRONTEND_ORIGIN || null,
+    openAiConfigured: Boolean(OPENAI_API_KEY),
+    openAiModel: OPENAI_MODEL,
+    openAiKeyMasked: OPENAI_API_KEY ? maskSecret(OPENAI_API_KEY) : null,
+    settingsProtected: Boolean(SETTINGS_PASSWORD),
+  });
+});
+
+app.get('/api/config/connections', async (_req: Request, res: Response) => {
+  try {
+    const gmailAuth = GMAIL_IMPORT_ACCOUNT ? await prisma.googleAuth.findUnique({ where: { email: GMAIL_IMPORT_ACCOUNT } }) : null;
+    res.json({
+      gmailAccount: GMAIL_IMPORT_ACCOUNT || null,
+      gmailConnected: Boolean(gmailAuth?.refreshToken || gmailAuth?.accessToken),
+      gmailLastSyncedAt: gmailAuth?.lastSyncedAt ?? null,
+      gmailError: lastGmailError,
+      gmailConfigured: Boolean(GOOGLE_CLIENT_ID && GOOGLE_CLIENT_SECRET),
+      openAiConfigured: Boolean(OPENAI_API_KEY),
+      openAiModel: OPENAI_MODEL,
+      openAiKeyMasked: OPENAI_API_KEY ? maskSecret(OPENAI_API_KEY) : null,
+      frontendOrigin: FRONTEND_ORIGIN || null,
+      settingsProtected: Boolean(SETTINGS_PASSWORD),
+    });
+  } catch (e) {
+    console.error('GET /api/config/connections', e);
+    sendError(res, 'SERVER_ERROR', String(e), 500);
+  }
+});
+
+app.post('/api/config/openai', async (req: Request, res: Response) => {
+  try {
+    if (!isLocalRequest(req)) return sendError(res, 'FORBIDDEN', 'この設定変更はローカルアクセスのみ許可されています。', 403);
+    if (!requireSettingsPassword(req, res)) return;
+    const apiKey = typeof req.body?.apiKey === 'string' ? req.body.apiKey.trim() : '';
+    const model = typeof req.body?.model === 'string' ? req.body.model.trim() : '';
+
+    if (!apiKey) return sendError(res, 'VALIDATION_ERROR', 'apiKey を指定してください。');
+    if (!/^sk-/.test(apiKey)) return sendError(res, 'VALIDATION_ERROR', 'OpenAI APIキーの形式が不正です。');
+
+    updateEnvFile({
+      OPENAI_API_KEY: apiKey,
+      OPENAI_MODEL: model || OPENAI_MODEL,
+    });
+
+    res.json({ ok: true, openAiConfigured: true, openAiKeyMasked: maskSecret(apiKey), openAiModel: model || OPENAI_MODEL });
+  } catch (e) {
+    console.error('POST /api/config/openai', e);
+    sendError(res, 'SERVER_ERROR', String(e), 500);
+  }
+});
+
+/** Gmailアカウント変更: POST /api/config/gmail */
+app.post('/api/config/gmail', async (req: Request, res: Response) => {
+  try {
+    if (!isLocalRequest(req)) return sendError(res, 'FORBIDDEN', 'この設定変更はローカルアクセスのみ許可されています。', 403);
+    if (!requireSettingsPassword(req, res)) return;
+
+    const account = typeof req.body?.account === 'string' ? req.body.account.trim() : '';
+    if (!account) return sendError(res, 'VALIDATION_ERROR', 'account（メールアドレス）を指定してください。');
+    if (!/@/.test(account)) return sendError(res, 'VALIDATION_ERROR', '有効なメールアドレスを入力してください。');
+
+    updateEnvFile({ GMAIL_IMPORT_ACCOUNT: account });
+    GMAIL_IMPORT_ACCOUNT = account;
+    lastGmailError = null;
+
+    res.json({ ok: true, gmailAccount: account, message: '保存しました。続けて Gmail を接続してください。' });
+  } catch (e) {
+    console.error('POST /api/config/gmail', e);
+    sendError(res, 'SERVER_ERROR', String(e), 500);
+  }
 });
 
 /** 受信一覧：ページネーション対応（プロ視点：パフォーマンス） */
@@ -1769,15 +1889,29 @@ app.get('/api/matches', async (req: Request, res: Response) => {
       prisma.projectOffer.findMany({
         take: 100,
         orderBy: { createdAt: 'desc' },
+        where: {
+          rawEmail: {
+            is: {
+              classification: 'project',
+            },
+          },
+        },
         include: {
           project: { select: { id: true, canonicalName: true } },
-          rawEmail: { select: { subject: true, bodyText: true, fromAddr: true, salesOwnerEmail: true, salesOwnerName: true } },
+          rawEmail: { select: { subject: true, bodyText: true, fromAddr: true, salesOwnerEmail: true, salesOwnerName: true, classification: true } },
         },
       }),
       prisma.talentOffer.findMany({
         take: 100,
         orderBy: { createdAt: 'desc' },
-        include: { rawEmail: { select: { subject: true, bodyText: true, fromAddr: true, salesOwnerEmail: true, salesOwnerName: true } } },
+        where: {
+          rawEmail: {
+            is: {
+              classification: 'talent',
+            },
+          },
+        },
+        include: { rawEmail: { select: { subject: true, bodyText: true, fromAddr: true, salesOwnerEmail: true, salesOwnerName: true, classification: true } } },
       }),
     ]);
 
@@ -1816,7 +1950,10 @@ app.get('/api/matches', async (req: Request, res: Response) => {
         const pText = `${po.rawEmail?.subject ?? ''}\n${po.rawEmail?.bodyText ?? ''}`;
         const tText = `${to.rawEmail?.subject ?? ''}\n${to.rawEmail?.bodyText ?? ''}`;
 
-        // 分類ミスのガード（取り込み初期は混ざりやすいので弾く）
+        // DB上の分類済みデータのみ対象にする。加えて本文ベースの簡易ガードも残す。
+        if (po.rawEmail?.classification !== 'project' || to.rawEmail?.classification !== 'talent') {
+          continue;
+        }
         if (/案件/.test(to.rawEmail?.subject ?? '') || /案件/.test(to.rawEmail?.bodyText ?? '')) {
           continue;
         }
@@ -2257,7 +2394,10 @@ function startGmailPolling() {
   const run = async () => {
     try {
       await gmailImportOnce();
-    } catch (e) {
+      lastGmailError = null;
+    } catch (e: any) {
+      const msg = e?.response?.data?.error_description || e?.message || String(e);
+      lastGmailError = msg.length > 100 ? msg.slice(0, 100) + '...' : msg;
       console.error('[gmail] import error', e);
     }
   };
@@ -3191,6 +3331,132 @@ app.post('/api/match', async (req: Request, res: Response) => {
     });
   } catch (e) {
     console.error('POST /api/match', e);
+    sendError(res, 'SERVER_ERROR', String(e), 500);
+  }
+});
+
+/** テンプレ文生成: POST /api/generate-draft */
+app.post('/api/generate-draft', async (req: Request, res: Response) => {
+  try {
+    const { projectOfferId, talentOfferId } = req.body as { projectOfferId?: string; talentOfferId?: string };
+    if (!projectOfferId || !talentOfferId) {
+      return sendError(res, 'VALIDATION_ERROR', 'projectOfferId と talentOfferId の両方を指定してください。');
+    }
+
+    const po = await prisma.projectOffer.findUnique({
+      where: { id: projectOfferId },
+      include: {
+        project: { select: { canonicalName: true } },
+        rawEmail: { select: { subject: true, bodyText: true, fromAddr: true, salesOwnerEmail: true, salesOwnerName: true } },
+      },
+    });
+    const to = await prisma.talentOffer.findUnique({
+      where: { id: talentOfferId },
+      include: {
+        talent: { select: { canonicalName: true } },
+        rawEmail: { select: { subject: true, bodyText: true, fromAddr: true, salesOwnerEmail: true, salesOwnerName: true } },
+      },
+    });
+
+    if (!po || !to) {
+      return sendError(res, 'NOT_FOUND', '指定されたオファーが見つかりません。', 404);
+    }
+
+    // テキストから情報を抽出
+    const pText = `${po.rawEmail?.subject ?? ''}\n${po.rawEmail?.bodyText ?? ''}`;
+    const tText = `${to.rawEmail?.subject ?? ''}\n${to.rawEmail?.bodyText ?? ''}`;
+    const pTech = extractTechTokens(pText);
+    const tTech = extractTechTokens(tText);
+    const pPrice = extractPriceMan(pText);
+    const tPrice = extractPriceMan(tText);
+    const pLoc = extractLocationText(pText);
+    const tLoc = extractLocationText(tText);
+
+    const techOverlap = [...pTech].filter((t: string) => tTech.has(t));
+
+    // スコアはマッチAPIのロジックを簡易再現
+    let score = 10; // base
+    const techScore = Math.min(techOverlap.length * 5, 30);
+    score += techScore;
+    if (pPrice && tPrice && tPrice <= pPrice) score += 10;
+    if (pLoc) score += 5;
+
+    const projectName = po.project?.canonicalName || po.rawEmail?.subject || '案件';
+    const talentName = (to as any).talent?.canonicalName || to.rawEmail?.subject || '人材';
+    const projectFrom = po.rawEmail?.fromAddr || '';
+    const talentFrom = to.rawEmail?.fromAddr || '';
+
+    // 案件情報の抽出
+    const priceInfo = pPrice ? `～${pPrice}万円` : '応相談';
+    const locationInfo = pLoc || '未記載';
+    const pStartMonth = extractMonth(extractStartText(pText));
+    const startInfo = pStartMonth ? `${pStartMonth}月～` : extractStartText(pText) || '応相談';
+
+    // 推薦理由
+    const reasons: string[] = [];
+    if (techOverlap.length > 0) reasons.push(`技術スキル一致: ${techOverlap.slice(0, 5).join(', ')}`);
+    if (pPrice && tPrice && tPrice <= pPrice) reasons.push('単価条件が合致');
+    if (pLoc && tLoc && pLoc.includes(tLoc.slice(0, 2))) reasons.push('勤務地エリアが近い');
+    if (reasons.length === 0) reasons.push('総合スコアによるマッチング');
+
+    // 確認質問
+    const questions: string[] = [];
+    if (!pPrice || !tPrice) questions.push('単価条件の詳細を双方に確認');
+    questions.push('参画開始時期の擦り合わせ');
+    if (pLoc) questions.push(`勤務地（${pLoc}）への通勤可否を確認`);
+
+    // 提案メールテンプレート
+    const emailDraft = `件名: 【人材ご提案】${projectName}
+
+${projectFrom} 様
+
+いつもお世話になっております。
+ティーアンドエスの坂本です。
+
+下記案件について、マッチする人材をご提案いたします。
+
+━━━━━━━━━━━━━━━━━━━━━━━━
+■ 対象案件
+${projectName}
+━━━━━━━━━━━━━━━━━━━━━━━━
+
+■ ご提案人材
+${talentName}
+
+■ 推薦理由
+${reasons.map((r, i) => `${i + 1}. ${r}`).join('\n')}
+
+■ マッチスコア: ${score}点
+
+■ 確認事項
+${questions.map((q, i) => `${i + 1}. ${q}`).join('\n')}
+
+詳細なスキルシートをご希望でしたら、お送りいたします。
+ご検討のほどよろしくお願いいたします。
+
+━━━━━━━━━━━━━━━━━━━━━━━━
+株式会社ティーアンドエス
+坂本 慶太
+━━━━━━━━━━━━━━━━━━━━━━━━`;
+
+    // 電話メモテンプレート
+    const callMemo = `【電話メモ】${new Date().toLocaleDateString('ja-JP')}
+
+■ 案件: ${projectName}
+■ 提案人材: ${talentName}
+■ スコア: ${score}点
+■ 推薦理由: ${reasons[0]}
+
+■ 注意点
+${!pPrice || !tPrice ? '・単価条件の詳細確認が必要' : '・単価条件は合致'}
+${pLoc ? `・勤務地: ${pLoc}` : ''}
+
+■ 確認すべきこと
+${questions.map((q) => `・${q}`).join('\n')}`;
+
+    res.json({ emailDraft, callMemo, score, reasons, questions });
+  } catch (e) {
+    console.error('POST /api/generate-draft', e);
     sendError(res, 'SERVER_ERROR', String(e), 500);
   }
 });
